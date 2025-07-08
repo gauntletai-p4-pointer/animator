@@ -3,8 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import GeneratedImageDisplay from './GeneratedImageDisplay';
-import { loadReferenceImages, getRelevantReferenceImages, ReferenceImage } from '@/utils/loadReferenceImages';
+import { loadReferenceImages, getRelevantReferenceImages, getRelevantReferenceImagesWithOriginal, getUserUploadedImages, combineReferenceImages, ReferenceImage } from '@/utils/loadReferenceImages';
 import { makeTransparent } from '@/utils/backgroundRemoval';
+import ReferenceImageDisplay from './ReferenceImageDisplay';
 
 interface ColorValue {
   r: number;
@@ -55,12 +56,93 @@ interface GeneratedImage {
   hasTransparency?: boolean;
 }
 
+/**
+ * Detects the target slot from the user's prompt
+ * @param userPrompt - The user's request prompt
+ * @returns The target slot name or null if not detected
+ */
+function detectTargetSlot(userPrompt: string): string | null {
+  const prompt = userPrompt.toLowerCase();
+  
+  // Prioritized detection - check most specific items first
+  
+  // Feet/Shoes (most specific)
+  if (prompt.includes('shoe') || prompt.includes('shoes') || prompt.includes('boot') || prompt.includes('boots') || prompt.includes('feet') || prompt.includes('foot')) {
+    return 'front-foot'; // Default to front foot for shoes
+  }
+  
+  // Hands/Gloves (specific)
+  if (prompt.includes('glove') || prompt.includes('gloves') || prompt.includes('hand') || prompt.includes('hands') || prompt.includes('fist')) {
+    return 'front-fist'; // Default to front fist for hand items
+  }
+  
+  // Eyes/Glasses (specific)
+  if (prompt.includes('glasses') || prompt.includes('goggles') || prompt.includes('sunglasses')) {
+    return 'goggles';
+  }
+  
+  // Head-related modifications
+  if (prompt.includes('head') || prompt.includes('face') || prompt.includes('hat') || prompt.includes('helmet') || prompt.includes('hair')) {
+    return 'head';
+  }
+  
+  // Eyes
+  if (prompt.includes('eye') || prompt.includes('eyes')) {
+    return 'eye';
+  }
+  
+  // Mouth
+  if (prompt.includes('mouth') || prompt.includes('lips') || prompt.includes('teeth')) {
+    return 'mouth';
+  }
+  
+  // Torso-related modifications
+  if (prompt.includes('torso') || prompt.includes('body') || prompt.includes('chest') || prompt.includes('shirt') || prompt.includes('jacket') || prompt.includes('vest')) {
+    return 'torso';
+  }
+  
+  // Neck
+  if (prompt.includes('neck') || prompt.includes('collar')) {
+    return 'neck';
+  }
+  
+  // Arms (after checking hands/gloves)
+  if (prompt.includes('arm') || prompt.includes('shoulder')) {
+    return 'front-upper-arm'; // Default to front arm
+  }
+  
+  // Forearms/Bracers
+  if (prompt.includes('forearm') || prompt.includes('bracer')) {
+    return 'front-bracer'; // Default to front bracer
+  }
+  
+  // Shins (specific)
+  if (prompt.includes('shin') || prompt.includes('shins')) {
+    return 'front-shin'; // Default to front shin
+  }
+  
+  // Legs/Thighs (after checking feet/shoes and shins)
+  if (prompt.includes('leg') || prompt.includes('thigh')) {
+    return 'front-thigh'; // Default to front thigh
+  }
+  
+  // Weapons
+  if (prompt.includes('weapon') || prompt.includes('gun') || prompt.includes('sword') || prompt.includes('rifle')) {
+    return 'gun';
+  }
+  
+  console.log('🔍 detectTargetSlot: No specific target detected for prompt:', userPrompt);
+  return null;
+}
+
 export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: ChatSidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isRoutingRequest, setIsRoutingRequest] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [isLoadingReferences, setIsLoadingReferences] = useState(false);
+  const [currentReferenceImages, setCurrentReferenceImages] = useState<ReferenceImage[]>([]);
+  const [currentTargetSlot, setCurrentTargetSlot] = useState<string>('');
   
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, append } = useChat({
     api: '/api/spine-assistant',
@@ -79,11 +161,37 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
       setIsLoadingReferences(true);
       
       try {
-        const images = await loadReferenceImages();
-        setReferenceImages(images);
-        console.log('✅ ChatSidebar: Reference images loaded successfully:', images.length);
+        // Load asset images from the assets directory
+        console.log('📁 ChatSidebar: Loading asset images...');
+        const assetImages = await loadReferenceImages();
+        console.log('✅ ChatSidebar: Asset images loaded:', assetImages.length);
+        
+        // Load user-uploaded images from localStorage
+        console.log('📤 ChatSidebar: Loading user-uploaded images...');
+        const userUploadedImages = getUserUploadedImages();
+        console.log('✅ ChatSidebar: User-uploaded images loaded:', userUploadedImages.length);
+        
+        // Combine both sources
+        const combinedImages = combineReferenceImages(assetImages, userUploadedImages);
+        setReferenceImages(combinedImages);
+        
+        console.log('✅ ChatSidebar: Combined reference images loaded successfully:', combinedImages.length);
+        console.log('   📁 Asset images:', assetImages.length, assetImages.map(img => img.name));
+        console.log('   📤 User-uploaded images:', userUploadedImages.length, userUploadedImages.map(img => img.name));
+        
       } catch (error) {
         console.error('❌ ChatSidebar: Error loading reference images:', error);
+        
+        // Even if asset loading fails, try to load user-uploaded images
+        try {
+          console.log('🔄 ChatSidebar: Attempting to load user-uploaded images only...');
+          const userUploadedImages = getUserUploadedImages();
+          setReferenceImages(userUploadedImages);
+          console.log('✅ ChatSidebar: Fallback to user-uploaded images only:', userUploadedImages.length);
+        } catch (fallbackError) {
+          console.error('❌ ChatSidebar: Fallback loading also failed:', fallbackError);
+          setReferenceImages([]);
+        }
       } finally {
         setIsLoadingReferences(false);
       }
@@ -116,9 +224,51 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
     try {
       console.log('🔄 ChatSidebar: Calling LLM router...');
       
-      // Get relevant reference images for this request
-      const relevantReferences = getRelevantReferenceImages(referenceImages, userPrompt);
+      // Try to detect the target body part from the prompt
+      const targetSlot = detectTargetSlot(userPrompt);
+      console.log('🎯 ChatSidebar: Detected target slot:', targetSlot || 'auto-detect from prompt');
+      
+      // Get relevant reference images for this request (including original body part)
+      const relevantReferences = getRelevantReferenceImagesWithOriginal(referenceImages, userPrompt, targetSlot || undefined);
       console.log('📸 ChatSidebar: Selected relevant reference images:', relevantReferences.length);
+      
+      // Update the current reference images for display
+      setCurrentReferenceImages(relevantReferences);
+      setCurrentTargetSlot(targetSlot || '');
+      
+              if (relevantReferences.length > 0) {
+          console.log('📸 ChatSidebar: Reference image names:', relevantReferences.map(img => img.name));
+          
+          // Show the selected reference images in the chat
+          const bodyPartImages = relevantReferences.filter(img => !img.url.startsWith('data:'));
+          const userImages = relevantReferences.filter(img => img.url.startsWith('data:'));
+          
+          console.log('🖼️ ChatSidebar: Reference images for display:');
+          console.log('   📁 Body part images:', bodyPartImages.length, bodyPartImages.map(img => `${img.name} -> ${img.url}`));
+          console.log('   📤 User images:', userImages.length, userImages.map(img => `${img.name} -> ${img.url.substring(0, 50)}...`));
+          
+          let referenceDescription = '';
+          if (bodyPartImages.length > 0) {
+            referenceDescription += `• **Body Part Reference:** ${bodyPartImages[0].name} (for proportions and positioning)\n`;
+          }
+          if (userImages.length > 0) {
+            referenceDescription += `• **User Aesthetic References:** ${userImages.map(img => img.name).join(', ')} (for art style)\n`;
+          }
+        
+                            await append({
+            role: 'assistant',
+            content: `🔍 **Reference Images Selected for Generation:**\n\n${referenceDescription}\n*The selected reference images are displayed below and will be sent to GPT-image-1 to provide context for generating your request.*`,
+          });
+      } else {
+        console.log('⚠️ ChatSidebar: No relevant reference images selected');
+        console.log('📋 ChatSidebar: Total available reference images:', referenceImages.length);
+        console.log('📋 ChatSidebar: Available reference names:', referenceImages.map(img => img.name));
+        
+        await append({
+          role: 'assistant',
+          content: `⚠️ **No Reference Images Found**\n\nNo relevant reference images were found for your request. This may affect the quality of the generated image.\n\n*Available images: ${referenceImages.length}*`,
+        });
+      }
       
       // Call the LLM router first
       const routerResponse = await fetch('/api/llm-router', {
@@ -216,9 +366,31 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
             }
             
             // Add successful image generation response to chat
+            const filteredImages = routerData.result.extractedParams.filteredReferenceImages || [];
+            const bodyPartImages = filteredImages.filter((img: any) => !img.url.startsWith('data:'));
+            const userImages = filteredImages.filter((img: any) => img.url.startsWith('data:'));
+            
+            let referenceInfo = '';
+            if (filteredImages.length > 0) {
+              referenceInfo = '\n\n**References Used:**\n';
+              if (bodyPartImages.length > 0) {
+                referenceInfo += `• **Body Part:** ${bodyPartImages[0].name} (for pose and proportions)\n`;
+              }
+              if (userImages.length > 0) {
+                referenceInfo += `• **User Aesthetic:** ${userImages.map((img: any) => img.name).join(', ')}\n`;
+              }
+            }
+            
+            // Show the complete prompt that was sent to GPT-image-1
+            const finalPrompt = routerData.result.extractedParams.finalPrompt || '';
+            let promptDisplay = '';
+            if (finalPrompt) {
+              promptDisplay = `\n\n**Complete Prompt Sent to GPT-image-1:**\n\`\`\`\n${finalPrompt}\n\`\`\``;
+            }
+            
             await append({
               role: 'assistant',
-              content: `🎨 **Image Generated & Applied Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n**Applied to:** ${bodyParts.join(', ')}\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
+              content: `🎨 **Image Generated & Applied Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n**Applied to:** ${bodyParts.join(', ')}${referenceInfo}${promptDisplay}\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
             });
             
             const newImage: GeneratedImage = {
@@ -279,6 +451,15 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
   const removeGeneratedImage = (imageId: string) => {
     console.log('🗑️ ChatSidebar: Removing generated image:', imageId);
     setGeneratedImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
+  /**
+   * Clears the current reference images display
+   */
+  const clearCurrentReferenceImages = () => {
+    console.log('🧹 ChatSidebar: Clearing current reference images');
+    setCurrentReferenceImages([]);
+    setCurrentTargetSlot('');
   };
 
   // Watch for tool results in messages
@@ -399,6 +580,32 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
               )}
             </div>
                       ))}
+          
+          {/* Reference Images Display */}
+          {currentReferenceImages.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                  Current Selection:
+                </span>
+                <button
+                  onClick={clearCurrentReferenceImages}
+                  className="text-xs px-2 py-1 rounded transition-colors"
+                  style={{
+                    backgroundColor: 'var(--select-bg)',
+                    color: 'var(--foreground)',
+                    border: '1px solid var(--select-border)',
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+              <ReferenceImageDisplay 
+                images={currentReferenceImages} 
+                targetSlot={currentTargetSlot || undefined}
+              />
+            </div>
+          )}
           
           {/* Generated Images Display */}
           {generatedImages.length > 0 && (

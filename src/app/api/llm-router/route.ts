@@ -125,13 +125,34 @@ async function mapPromptToBodyPart(prompt: string): Promise<string[]> {
   
   const lowerPrompt = prompt.toLowerCase();
   
-  // Direct keyword matching first
-  for (const [bodyPart, slots] of Object.entries(BODY_PART_MAPPING)) {
-    if (lowerPrompt.includes(bodyPart)) {
-      console.log(`✅ BODY PART MAPPING: Found direct match "${bodyPart}" → slots: ${slots.join(', ')}`);
-      return slots;
-    }
-  }
+  // Direct keyword matching with prioritized order (most specific first)
+  const prioritizedKeywords = [
+    // Specific items first
+    'shoes', 'shoe', 'boots', 'boot', 'left foot', 'right foot', 'feet', 'foot',
+    'gloves', 'glove', 'hands', 'hand', 'fist', 'fists',
+    'glasses', 'goggles', 'sunglasses',
+    'left forearm', 'right forearm', 'forearms', 'forearm', 'bracers', 'bracer',
+    'left shin', 'right shin', 'shins', 'shin',
+    'left arm', 'right arm', 'arms', 'arm', 'shoulder',
+    'left leg', 'right leg', 'legs', 'leg', 'thighs', 'thigh',
+    // Then general body parts
+    'head', 'face', 'hat', 'helmet', 'hair',
+    'eyes', 'eye', 'mouth', 'lips', 'teeth',
+    'neck', 'collar',
+    'torso', 'body', 'chest', 'shirt', 'jacket', 'vest', 'armor',
+    'weapon', 'gun', 'sword', 'rifle', 'pistol',
+    'muzzle', 'flash',
+    'accessory', 'gear'
+  ];
+  
+     // Check prioritized keywords first
+   for (const keyword of prioritizedKeywords) {
+     if (lowerPrompt.includes(keyword) && keyword in BODY_PART_MAPPING) {
+       const slots = BODY_PART_MAPPING[keyword as keyof typeof BODY_PART_MAPPING];
+       console.log(`✅ BODY PART MAPPING: Found prioritized match "${keyword}" → slots: ${slots.join(', ')}`);
+       return slots;
+     }
+   }
   
   // Use LLM to analyze more complex prompts
   const messages = [
@@ -386,6 +407,73 @@ Example response format:
 }
 
 /**
+ * Filters reference images to include only relevant body part and all user-uploaded images
+ */
+function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPart: string): any[] {
+  console.log('🔍 REFERENCE FILTERING: Filtering reference images for generation');
+  console.log('📸 REFERENCE FILTERING: Total images available:', referenceImages.length);
+  console.log('🎯 REFERENCE FILTERING: Target body part:', targetBodyPart);
+  
+  if (!referenceImages || referenceImages.length === 0) {
+    console.log('⚠️ REFERENCE FILTERING: No reference images provided');
+    return [];
+  }
+  
+  const filteredImages = [];
+  
+  // ALWAYS include all user-uploaded images (for aesthetic style)
+  const userUploadedImages = referenceImages.filter(img => img.url.startsWith('data:'));
+  if (userUploadedImages.length > 0) {
+    filteredImages.push(...userUploadedImages);
+    console.log('✅ REFERENCE FILTERING: Added', userUploadedImages.length, 'user-uploaded images');
+    userUploadedImages.forEach(img => console.log('   📤 User-uploaded:', img.name));
+  }
+  
+  // Find the specific body part image that matches the target
+  const bodyPartImage = referenceImages.find(img => {
+    // Skip user-uploaded images
+    if (img.url.startsWith('data:')) return false;
+    
+    const imageName = img.name.toLowerCase();
+    const bodyPartLower = targetBodyPart.toLowerCase();
+    
+    // Direct filename match
+    if (imageName === bodyPartLower) {
+      return true;
+    }
+    
+    // Check if the image name contains the body part
+    if (imageName.includes(bodyPartLower)) {
+      return true;
+    }
+    
+    // Special mappings for common body parts
+    if (bodyPartLower === 'head' && imageName === 'head') return true;
+    if (bodyPartLower === 'torso' && imageName === 'torso') return true;
+    if (bodyPartLower === 'front-upper-arm' && imageName === 'front-upper-arm') return true;
+    if (bodyPartLower === 'front-thigh' && imageName === 'front-thigh') return true;
+    
+    return false;
+  });
+  
+  if (bodyPartImage) {
+    filteredImages.push(bodyPartImage);
+    console.log('✅ REFERENCE FILTERING: Added body part image:', bodyPartImage.name);
+  } else {
+    console.log('⚠️ REFERENCE FILTERING: No matching body part image found for:', targetBodyPart);
+    console.log('   Available asset images:', referenceImages.filter(img => !img.url.startsWith('data:')).map(img => img.name));
+  }
+  
+  console.log('🎯 REFERENCE FILTERING: Final filtered images:', filteredImages.length);
+  filteredImages.forEach(img => {
+    const imageType = img.url.startsWith('data:') ? 'USER-UPLOADED' : 'BODY-PART';
+    console.log(`   📸 ${imageType}: ${img.name}`);
+  });
+  
+  return filteredImages;
+}
+
+/**
  * Image generation function using OpenAI GPT-image-1
  * Example: "Make the character wear a red hat"
  */
@@ -406,14 +494,23 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
   console.log('   📄 Description:', description);
   
   try {
-    console.log('⚡ IMAGE GENERATION: Starting GPT-image-1 generation...');
+    console.log('⚡ IMAGE GENERATION: Starting image generation process...');
     
-    // Step 1: Rewrite the user prompt for image generation
+    // Step 1: Determine the target body part for this generation
+    const detectedBodyParts = await mapPromptToBodyPart(userPrompt);
+    const targetBodyPart = detectedBodyParts[0]; // Use the first body part as the target
+    console.log('🎯 IMAGE GENERATION: Target body part:', targetBodyPart);
+    
+    // Step 2: Filter reference images to include only relevant body part and all user images
+    const filteredReferenceImages = filterReferenceImagesForGeneration(referenceImages || [], targetBodyPart);
+    console.log('📸 IMAGE GENERATION: Filtered reference images:', filteredReferenceImages.length);
+    
+    // Step 3: Rewrite the user prompt for image generation
     const rewrittenPrompt = await rewritePromptForImageGeneration(userPrompt);
     console.log('📝 IMAGE GENERATION: Rewritten prompt:', rewrittenPrompt);
     
-    // Step 2: Create a detailed prompt for Spine2D compatible assets
-    const enhancedPrompt = `${rewrittenPrompt}
+    // Step 4: Create a detailed prompt for Spine2D compatible assets
+    let enhancedPrompt = `${rewrittenPrompt}
 
 The image should be a 2D character sprite asset with these specifications:
 - Clean and simple design suitable for game sprites
@@ -427,52 +524,171 @@ The image should be a 2D character sprite asset with these specifications:
 - Avoid gradients or soft shadows that blend with the background
 - Use bold, defined outlines around the object
 
-Please generate an image that matches the art style and proportions of the reference character parts provided.
-
 Original user request: ${userPrompt}`;
-    
-    console.log('🚀 IMAGE GENERATION: Enhanced prompt:', enhancedPrompt);
-    
-    // Add reference context to prompt if images are provided
-    let finalPrompt = enhancedPrompt;
-    if (referenceImages && referenceImages.length > 0) {
-      console.log('📎 IMAGE GENERATION: Adding reference context to prompt');
-      const referenceNames = referenceImages.slice(0, 5).map(img => img.name).join(', ');
-      console.log(`   📸 Reference parts: ${referenceNames}`);
+
+    // Step 5: Add reference context based on filtered images
+    if (filteredReferenceImages.length > 0) {
+      console.log('🎨 IMAGE GENERATION: Adding reference context to prompt');
       
-      finalPrompt += `\n\nReference art style context: This should match the art style of these character parts: ${referenceNames}. Use similar proportions, color palette, and artistic style.`;
+      const bodyPartImages = filteredReferenceImages.filter(img => !img.url.startsWith('data:'));
+      const userImages = filteredReferenceImages.filter(img => img.url.startsWith('data:'));
+      
+      let referenceContext = '\n\n=== REFERENCE STYLE CONTEXT ===\n';
+      
+      if (bodyPartImages.length > 0) {
+        referenceContext += `CRITICAL: Original body part reference image "${bodyPartImages[0].name}" - You MUST follow this image EXACTLY for:\n`;
+        referenceContext += `• POSE: Match the exact orientation and angle (if head faces right, generate facing right)\n`;
+        referenceContext += `• PROPORTIONS: Use identical size ratios and shape proportions\n`;
+        referenceContext += `• SILHOUETTE: Maintain the same general outline and form\n`;
+        referenceContext += `• POSITIONING: Keep the same stance, angle, and directional facing\n`;
+        referenceContext += `• PERSPECTIVE: Match the exact viewing angle (front, side, 3/4, etc.)\n`;
+        referenceContext += `Examples: If foot points right, generate shoe pointing right. If head tilts left, generate head tilting left.\n\n`;
+      }
+      
+      if (userImages.length > 0) {
+        referenceContext += `User aesthetic references: ${userImages.map(img => img.name).join(', ')} - Apply the artistic STYLE and AESTHETICS from these images while maintaining the pose from the body part reference.\n\n`;
+      }
+      
+      referenceContext += 'PRIORITY ORDER:\n';
+      referenceContext += '1. FIRST: Match exact pose, proportions, and orientation from the body part reference\n';
+      referenceContext += '2. THEN: Apply artistic style and aesthetics from user references\n';
+      referenceContext += '3. FINALLY: Apply the requested modifications while preserving the original pose structure\n\n';
+      referenceContext += 'The generated image must look like it could replace the original body part seamlessly in terms of pose and proportions.';
+      
+      enhancedPrompt += referenceContext;
     }
     
+    console.log('🚀 IMAGE GENERATION: Enhanced prompt with reference context:', enhancedPrompt);
+    
+    const finalPrompt = enhancedPrompt;
     console.log('📨 IMAGE GENERATION: Final prompt for gpt-image-1:', finalPrompt);
     
     // Debug: Check if we have API key
     console.log('🔑 IMAGE GENERATION: Has API key:', !!process.env.OPENAI_API_KEY);
     console.log('🔑 IMAGE GENERATION: API key length:', process.env.OPENAI_API_KEY?.length || 0);
     
-    // Make request to OpenAI Images API with gpt-image-1
-    const response = await fetch('https://api.openai.com/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
+    // Prepare request body based on whether we have reference images
+    let requestBody: any;
+    let apiEndpoint: string;
+    let imageData: any;
+    
+    if (filteredReferenceImages.length > 0) {
+      // Use images/edits endpoint when we have reference images
+      apiEndpoint = 'https://api.openai.com/v1/images/edits';
+      console.log('🖼️ IMAGE GENERATION: Using /images/edits endpoint with reference images');
+      
+      // Create FormData for multipart/form-data request
+      const formData = new FormData();
+      formData.append('model', 'gpt-image-1');
+      formData.append('prompt', finalPrompt);
+      formData.append('n', '1');
+      formData.append('size', '1024x1024');
+      formData.append('quality', 'medium');
+      
+      // Add reference images to the request
+      for (let i = 0; i < Math.min(filteredReferenceImages.length, 10); i++) {
+        const img = filteredReferenceImages[i];
+        console.log(`📎 IMAGE GENERATION: Adding reference image ${i + 1}: ${img.name}`);
+        
+        if (img.url.startsWith('data:')) {
+          // Handle base64 user-uploaded images
+          const base64Data = img.url.split(',')[1];
+          const binaryData = Buffer.from(base64Data, 'base64');
+          const blob = new Blob([binaryData], { type: 'image/png' });
+          formData.append('image[]', blob, img.name || `user_image_${i}.png`);
+        } else {
+          // Handle asset images - read from filesystem directly
+          try {
+            // Convert URL path to filesystem path
+            const filePath = img.url.startsWith('/') ? `public${img.url}` : `public/${img.url}`;
+            console.log(`📁 IMAGE GENERATION: Reading asset from filesystem: ${filePath}`);
+            
+            const fs = require('fs');
+            const path = require('path');
+            
+            const fullPath = path.resolve(process.cwd(), filePath);
+            console.log(`📁 IMAGE GENERATION: Full path: ${fullPath}`);
+            
+            if (fs.existsSync(fullPath)) {
+              const fileBuffer = fs.readFileSync(fullPath);
+              
+              // Determine MIME type based on file extension
+              const ext = path.extname(filePath).toLowerCase();
+              let mimeType = 'image/png'; // default
+              if (ext === '.jpg' || ext === '.jpeg') {
+                mimeType = 'image/jpeg';
+              } else if (ext === '.png') {
+                mimeType = 'image/png';
+              } else if (ext === '.webp') {
+                mimeType = 'image/webp';
+              }
+              
+              console.log(`🎨 IMAGE GENERATION: Using MIME type: ${mimeType} for file: ${filePath}`);
+              const blob = new Blob([fileBuffer], { type: mimeType });
+              formData.append('image[]', blob, img.name || `asset_image_${i}.png`);
+              console.log(`✅ IMAGE GENERATION: Successfully added asset image: ${img.name}`);
+            } else {
+              console.warn(`⚠️ IMAGE GENERATION: Asset file not found: ${fullPath}`);
+            }
+          } catch (fetchError) {
+            console.error(`❌ IMAGE GENERATION: Error reading asset image ${img.name}:`, fetchError);
+          }
+        }
+      }
+      
+      // Make request to OpenAI Images Edit API with reference images
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+          // Note: Don't set Content-Type for FormData, let the browser set it
+        },
+        body: formData
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ IMAGE GENERATION: GPT-image-1 Edit API error:', errorData);
+        throw new Error(`GPT-image-1 Edit API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+      }
+      
+      imageData = await response.json();
+      console.log('✅ IMAGE GENERATION: GPT-image-1 Edit response received');
+      
+    } else {
+      // Use images/generations endpoint when no reference images
+      apiEndpoint = 'https://api.openai.com/v1/images/generations';
+      console.log('🖼️ IMAGE GENERATION: Using /images/generations endpoint (no reference images)');
+      
+      requestBody = {
         model: 'gpt-image-1',
         prompt: finalPrompt,
         n: 1,
         size: '1024x1024',
         quality: 'medium'
-      })
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('❌ IMAGE GENERATION: GPT-image-1 API error:', errorData);
-      throw new Error(`GPT-image-1 API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+      };
+      
+      // Make request to OpenAI Images API with gpt-image-1
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ IMAGE GENERATION: GPT-image-1 API error:', errorData);
+        throw new Error(`GPT-image-1 API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+      }
+      
+      imageData = await response.json();
+      console.log('✅ IMAGE GENERATION: GPT-image-1 response received');
     }
     
-    const imageData = await response.json();
-    console.log('✅ IMAGE GENERATION: GPT-image-1 response received');
+    // Process the response
     console.log('📋 IMAGE GENERATION: Full response data:', JSON.stringify(imageData, null, 2));
     
     // Check if response has expected structure
@@ -505,8 +721,8 @@ Original user request: ${userPrompt}`;
     
     console.log('📝 IMAGE GENERATION: Revised prompt:', revisedPrompt);
     
-    // Step 3: Map the original prompt to body parts
-    const bodyParts = await mapPromptToBodyPart(userPrompt);
+    // Map the original prompt to body parts  
+    const resultBodyParts = await mapPromptToBodyPart(userPrompt);
     
     return {
       success: true,
@@ -522,12 +738,14 @@ Original user request: ${userPrompt}`;
         revisedPrompt,
         enhancedPrompt,
         finalPrompt,
+        filteredReferenceImages,
         referenceImagesUsed: referenceImages ? referenceImages.length : 0,
+        referenceImageNames: referenceImages ? referenceImages.map(img => img.name) : [],
         dimensions: { width: 1024, height: 1024 },
         format: 'PNG',
         model: 'gpt-image-1',
         timestamp: new Date().toISOString(),
-        bodyParts: bodyParts,
+        bodyParts: resultBodyParts,
       },
     };
     
