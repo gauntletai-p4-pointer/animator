@@ -19,18 +19,24 @@ OPENAI_API_KEY=your_actual_openai_api_key_here
 
 Once configured, you can test the LLM router by running the application and trying these example prompts in the chat:
 
+### Primary Test Cases
+- **"Make the character wear a red hat"** → Should route to `image_generation` with detailed logging
+- **"Make him walk faster"** → Should route to `walk_animation` with parameter modification
+- **"Export the character assets"** → Should route to `export_assets` with package creation
+
 ### Animation Requests
-- "Make him walk faster" → Should route to `walk_animation`
+- "Make him walk faster" → Should route to `walk_animation` (with speed parameters)
 - "Create a dance animation" → Should route to `dance_animation`
 - "Make him jump" → Should route to `jump_animation`
 - "Add a running animation" → Should route to `run_animation`
 
 ### Image Generation Requests
 - "Generate a sword texture" → Should route to `image_generation`
+- "Make the character wear a red hat" → Should route to `image_generation` (with item parameters)
 - "Create a hat image" → Should route to `image_generation`
 
 ### Export Requests
-- "Export the character assets" → Should route to `export_assets`
+- "Export the character assets" → Should route to `export_assets` (with file packaging)
 - "Download the animation" → Should route to `export_assets`
 
 ### Appearance Changes
