@@ -1,0 +1,13 @@
+project/
+├── index.html
+├── assets/
+│   ├── character.json     (skeleton data)
+│   ├── character.atlas    (texture atlas info)
+│   └── character.png      (sprite sheet image)
+├── dist/
+│   ├── spine-webgl.js     (Spine runtime)
+│   └── main.js           (compiled TypeScript)
+├── src/
+│   └── main.ts           (your TypeScript code)
+├── package.json
+└── tsconfig.json

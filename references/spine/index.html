@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spine Walking Animation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #333;
+            font-family: Arial, sans-serif;
+        }
+        
+        #gameCanvas {
+            border: 2px solid #666;
+            background: #111;
+            display: block;
+            margin: 20px auto;
+        }
+        
+        .controls {
+            text-align: center;
+            color: white;
+            margin: 20px;
+        }
+        
+        button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 14px;
+            background: #555;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background: #777;
+        }
+        
+        .speed-control {
+            margin: 10px;
+        }
+        
+        input[type="range"] {
+            width: 200px;
+            margin: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="color: white; text-align: center;">Spine2D Walking Animation Demo</h1>
+    
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="controls">
+        <button onclick="demo.startWalking()">Start Walking</button>
+        <button onclick="demo.stopWalking()">Stop Walking</button>
+        
+        <div class="speed-control">
+            <label style="color: white;">Speed: </label>
+            <input type="range" min="0.1" max="3" step="0.1" value="1" 
+                   onchange="demo.setWalkSpeed(this.value)">
+            <span id="speedValue" style="color: white;">1.0x</span>
+        </div>
+    </div>
+
+    <script src="dist/spine-webgl.js"></script>
+    <script src="dist/main.js"></script>
+    <script>
+        let demo;
+        
+        window.addEventListener('load', async () => {
+            try {
+                demo = new SpineWalkingDemo('gameCanvas');
+                await demo.loadCharacter();
+                demo.render();
+                console.log('Spine demo loaded successfully!');
+            } catch (error) {
+                console.error('Error loading Spine demo:', error);
+                document.body.innerHTML = '<h2 style="color: red; text-align: center;">Error loading animation. Check console for details.</h2>';
+            }
+        });
+        
+        // Update speed display
+        document.querySelector('input[type="range"]').addEventListener('input', function(e) {
+            document.getElementById('speedValue').textContent = e.target.value + 'x';
+        });
+    </script>
+</body>
+</html>
