@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import SpineViewer from './SpineViewer';
 import ChatSidebar from './ChatSidebar';
+import ReferencesUploadSidebar from './ReferencesUploadSidebar';
 import { 
   Skeleton, 
   AnimationState,
@@ -50,11 +51,24 @@ interface AnimationData {
 export default function SpineAnimator() {
   const skeletonRef = useRef<Skeleton | null>(null);
   const animationStateRef = useRef<AnimationState | null>(null);
+  const createDynamicAttachmentRef = useRef<((slotName: string, imageUrl: string) => Promise<void>) | null>(null);
   const [animationsUpdated, setAnimationsUpdated] = useState(0);
 
   const handleSkeletonLoaded = (skeleton: Skeleton, animationState: AnimationState) => {
     skeletonRef.current = skeleton;
     animationStateRef.current = animationState;
+    
+    // Log available slots and attachments for debugging
+    console.log('🦴 SKELETON LOADED: Available slots:', skeleton.slots.map(slot => slot.data.name));
+    if (skeleton.skin) {
+      console.log('🎨 SKELETON LOADED: Current skin:', skeleton.skin.name);
+      console.log('📎 SKELETON LOADED: Available attachments:', skeleton.skin.attachments ? Object.keys(skeleton.skin.attachments) : 'None');
+    }
+  };
+
+  const handleDynamicAttachmentCreator = (createAttachment: (slotName: string, imageUrl: string) => Promise<void>) => {
+    createDynamicAttachmentRef.current = createAttachment;
+    console.log('🔧 DYNAMIC ATTACHMENT CREATOR: Function received and stored');
   };
 
   const handleAppearanceChange = (change: AppearanceChange) => {
@@ -80,10 +94,36 @@ export default function SpineAnimator() {
         // Change a specific attachment
         try {
           if (typeof change.value === 'string') {
-            skeleton.setAttachment(change.target, change.value);
+            // Check if the slot exists
+            const slot = skeleton.findSlot(change.target);
+            if (!slot) {
+              console.warn(`Slot "${change.target}" not found. Available slots:`, skeleton.slots.map(s => s.data.name));
+              break;
+            }
+            
+            // Check if the attachment exists in the skin
+            const skin = skeleton.skin;
+            if (!skin) {
+              console.warn('No skin available on skeleton');
+              break;
+            }
+            
+            const attachment = skin.getAttachment(slot.data.index, change.value);
+            if (!attachment) {
+              console.warn(`Attachment "${change.value}" not found for slot "${change.target}".`);
+              console.warn('This attachment does not exist in the current skeleton. Skipping attachment change.');
+              
+              // List available attachments for debugging
+              console.log('Available skin attachments:', skin.attachments ? Object.keys(skin.attachments) : 'None');
+            } else {
+              skeleton.setAttachment(change.target, change.value);
+              console.log(`Successfully set attachment "${change.value}" on slot "${change.target}"`);
+            }
           }
         } catch (e) {
           console.error('Failed to set attachment:', e);
+          console.log('Available slots:', skeleton.slots.map(slot => slot.data.name));
+          console.log('Current skin:', skeleton.skin ? skeleton.skin.name : 'No skin');
         }
         break;
 
@@ -100,8 +140,40 @@ export default function SpineAnimator() {
         break;
 
       case 'texture':
-        // This would require reloading the texture
-        console.log('Texture changes not yet implemented');
+        // Handle texture changes by creating a new attachment with the generated image
+        try {
+          if (typeof change.value === 'string') {
+            console.log(`🖼️ TEXTURE CHANGE: Attempting to apply texture to slot "${change.target}"`);
+            console.log(`   🔗 Image URL: ${change.value}`);
+            
+            // Check if we have the dynamic attachment creator function
+            if (!createDynamicAttachmentRef.current) {
+              console.error('❌ TEXTURE CHANGE: Dynamic attachment creator function not available');
+              console.error('   📝 This should be provided by SpineViewer after skeleton loads');
+              return;
+            }
+            
+            // Use the dynamic attachment creator to apply the texture
+            createDynamicAttachmentRef.current(change.target, change.value)
+              .then(() => {
+                console.log(`✅ TEXTURE CHANGE: Successfully applied texture to slot "${change.target}"`);
+              })
+              .catch((error) => {
+                console.error(`❌ TEXTURE CHANGE: Failed to apply texture:`, error);
+                
+                // Fallback: Apply color tint to show something happened
+                const slot = skeleton.findSlot(change.target);
+                if (slot) {
+                  slot.color.r = 0.8;
+                  slot.color.g = 1.0;
+                  slot.color.b = 0.8;
+                  console.log(`   🔄 Applied color tint as fallback for slot "${change.target}"`);
+                }
+              });
+          }
+        } catch (e) {
+          console.error('❌ TEXTURE CHANGE: Failed to apply texture:', e);
+        }
         break;
     }
   };
@@ -230,10 +302,12 @@ export default function SpineAnimator() {
 
   return (
     <div className="flex h-screen">
+      <ReferencesUploadSidebar />
       <div className="flex-1 overflow-auto">
         <SpineViewer 
           key={animationsUpdated}
-          onSkeletonLoaded={handleSkeletonLoaded} 
+          onSkeletonLoaded={handleSkeletonLoaded}
+          onDynamicAttachmentCreator={handleDynamicAttachmentCreator}
         />
       </div>
       <ChatSidebar 
