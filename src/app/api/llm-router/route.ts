@@ -584,6 +584,7 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
     let enhancedPrompt = `${rewrittenPrompt}
 
 The image should be a 2D character sprite asset with these specifications:
+- The character is facing to the right. THE CHARACTER IS FACING TO THE RIGHT.
 - Clean and simple design suitable for game sprites
 - SOLID WHITE BACKGROUND (will be made transparent in post-processing)
 - High contrast and clear details with sharp edges
@@ -595,6 +596,18 @@ The image should be a 2D character sprite asset with these specifications:
 - Avoid gradients or soft shadows that blend with the background
 - Use bold, defined outlines around the object
 
+=== CHARACTER ORIENTATION CONTEXT ===
+CRITICAL: This body part belongs to a character that is facing DIRECTLY TO THE RIGHT (90-degree right profile view).
+- The character's entire body is oriented facing right
+- The character's head points to the right
+- The character's feet/shoes point to the right
+- All body parts maintain this consistent rightward-facing orientation
+- The generated item must match this right-facing directional perspective
+- If generating shoes: they should face right (heel on left, toe on right)
+- If generating head items: they should face right profile
+- If generating body items: they should show the right side view
+- Maintain consistency with a character walking/standing facing right
+
 Original user request: ${userPrompt}`;
 
     // Step 5: Analyze pose of body part reference image using GPT-4o Mini
@@ -605,6 +618,8 @@ Original user request: ${userPrompt}`;
       const userImages = filteredReferenceImages.filter(img => img.url.startsWith('data:'));
       
       // Analyze the pose of the body part reference image
+      // TEMPORARILY COMMENTED OUT FOR TESTING
+      /*
       if (bodyPartImages.length > 0) {
         const bodyPartImg = bodyPartImages[0];
         console.log(`🔍 IMAGE GENERATION: Analyzing pose of reference body part: ${bodyPartImg.name}`);
@@ -627,6 +642,7 @@ Original user request: ${userPrompt}`;
           console.error(`❌ IMAGE GENERATION: Error during pose analysis:`, error);
         }
       }
+      */
       
       let referenceContext = '\n\n=== REFERENCE STYLE CONTEXT ===\n';
       
@@ -640,11 +656,15 @@ Original user request: ${userPrompt}`;
         referenceContext += `Examples: If foot points right, generate shoe pointing right. If head tilts left, generate head tilting left.\n\n`;
         
         // Add detailed pose analysis from GPT-4o Mini
+        // TEMPORARILY COMMENTED OUT FOR TESTING
+        /*
         if (poseDescription) {
           referenceContext += `=== DETAILED POSE ANALYSIS ===\n`;
           referenceContext += `${poseDescription}\n\n`;
-          referenceContext += `CRITICAL: Use this detailed pose description to ensure EXACT pose matching. The generated item must have identical orientation, angle, positioning, and proportions as described above.\n\n`;
+          referenceContext += `CRITICAL: Use this detailed pose description to ensure EXACT pose matching. The generated item must have identical orientation, angle, positioning, and proportions as described above.\n`;
+          referenceContext += `IMPORTANT: Combine this pose analysis with the CHARACTER ORIENTATION CONTEXT above. The pose details describe the specific angles and positioning, while the character orientation ensures the overall rightward-facing direction is maintained.\n\n`;
         }
+        */
       }
       
       if (userImages.length > 0) {
@@ -652,10 +672,11 @@ Original user request: ${userPrompt}`;
       }
       
       referenceContext += 'PRIORITY ORDER:\n';
-      referenceContext += '1. FIRST: Match exact pose, proportions, and orientation from the body part reference (as detailed in pose analysis)\n';
-      referenceContext += '2. THEN: Apply artistic style and aesthetics from user references\n';
-      referenceContext += '3. FINALLY: Apply the requested modifications while preserving the original pose structure\n\n';
-      referenceContext += 'The generated image must look like it could replace the original body part seamlessly in terms of pose and proportions.';
+      referenceContext += '1. FIRST: Match the right-facing character orientation (CHARACTER ORIENTATION CONTEXT)\n';
+      referenceContext += '2. SECOND: Match general pose and proportions from the body part reference image\n';
+      referenceContext += '3. THIRD: Apply artistic style and aesthetics from user references\n';
+      referenceContext += '4. FINALLY: Apply the requested modifications while preserving the original pose structure and rightward orientation\n\n';
+      referenceContext += 'The generated image must look like it could replace the original body part seamlessly in terms of pose, proportions, and directional facing. It must maintain the character\'s consistent right-facing orientation.';
       
       enhancedPrompt += referenceContext;
     }
@@ -843,7 +864,7 @@ Original user request: ${userPrompt}`;
         filteredReferenceImages,
         referenceImagesUsed: referenceImages ? referenceImages.length : 0,
         referenceImageNames: referenceImages ? referenceImages.map(img => img.name) : [],
-        poseDescription, // Add pose analysis results
+        // poseDescription, // TEMPORARILY COMMENTED OUT FOR TESTING
         dimensions: { width: 1024, height: 1024 },
         format: 'PNG',
         model: 'gpt-image-1',
@@ -876,7 +897,7 @@ Original user request: ${userPrompt}`;
         rewrittenPrompt: fallbackRewrittenPrompt,
         generatedImageUrl: null,
         referenceImagesUsed: referenceImages ? referenceImages.length : 0,
-        poseDescription: poseDescription || 'Not available due to error',
+        // poseDescription: poseDescription || 'Not available due to error', // TEMPORARILY COMMENTED OUT FOR TESTING
         dimensions: { width: 1024, height: 1024 },
         format: 'PNG',
         model: 'gpt-image-1',

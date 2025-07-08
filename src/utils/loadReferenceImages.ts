@@ -304,9 +304,14 @@ export function getOriginalBodyPartImage(
       return true;
     }
     
-    // For leg parts
-    if ((slotLower.includes('thigh') || slotLower.includes('shin') || slotLower.includes('foot')) && 
-        (imgName.includes('thigh') || imgName.includes('shin') || imgName.includes('foot'))) {
+    // For leg parts - match specific parts, not just any leg part
+    if (slotLower.includes('thigh') && imgName.includes('thigh')) {
+      return true;
+    }
+    if (slotLower.includes('shin') && imgName.includes('shin')) {
+      return true;
+    }
+    if (slotLower.includes('foot') && imgName.includes('foot')) {
       return true;
     }
     
