@@ -42,14 +42,89 @@ interface ChatSidebarProps {
 
 export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: ChatSidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
+  const [isRoutingRequest, setIsRoutingRequest] = useState(false);
   
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, append } = useChat({
     api: '/api/spine-assistant',
     onToolCall: ({ toolCall }) => {
       console.log('Tool called:', toolCall);
       // The tool results will be in the message stream
     }
   });
+
+  /**
+   * Handles form submission by first routing through the LLM router
+   */
+  const handleCustomSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    if (!input.trim() || isLoading || isRoutingRequest) {
+      return;
+    }
+
+    const userPrompt = input.trim();
+    console.log('🎯 ChatSidebar: Processing user prompt:', userPrompt);
+    
+    // Add user message to chat immediately
+    await append({
+      role: 'user',
+      content: userPrompt,
+    });
+
+    setIsRoutingRequest(true);
+
+    try {
+      console.log('🔄 ChatSidebar: Calling LLM router...');
+      
+      // Call the LLM router first
+      const routerResponse = await fetch('/api/llm-router', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userPrompt,
+        }),
+      });
+
+      if (!routerResponse.ok) {
+        throw new Error(`Router API error: ${routerResponse.status}`);
+      }
+
+      const routerData = await routerResponse.json();
+      console.log('📊 ChatSidebar: Router response:', routerData);
+
+      // Add router response to chat
+      await append({
+        role: 'assistant',
+        content: `🔍 Request categorized as: **${routerData.categorization.category}**\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
+      });
+
+      // Handle the response based on the routing result
+      if (routerData.result.useOriginalSystem) {
+        console.log('🔄 ChatSidebar: Using original system for this request');
+        // Let the original system handle it - the form submission will proceed normally
+        // after this function completes
+      } else {
+        console.log('✅ ChatSidebar: Request handled by new router system');
+        // The new system has already handled the request
+      }
+
+    } catch (error) {
+      console.error('❌ ChatSidebar: Error with LLM router:', error);
+      
+      // Add error message to chat
+      await append({
+        role: 'assistant',
+        content: '❌ Error processing request with LLM router. Falling back to original system...',
+      });
+      
+      // Fall back to original system
+      console.log('🔄 ChatSidebar: Falling back to original system due to error');
+    } finally {
+      setIsRoutingRequest(false);
+    }
+  };
 
   // Watch for tool results in messages
   React.useEffect(() => {
@@ -122,9 +197,11 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
               <p className="text-sm">Try asking me to:</p>
               <ul className="text-sm mt-2 space-y-1">
                 <li>&quot;Make the character wear a red hat&quot;</li>
-                <li>&quot;Change the skin color to blue&quot;</li>
                 <li>&quot;Create a dance animation&quot;</li>
+                <li>&quot;Make him walk faster&quot;</li>
+                <li>&quot;Generate a sword texture&quot;</li>
                 <li>&quot;Add a jumping animation&quot;</li>
+                <li>&quot;Export the character assets&quot;</li>
               </ul>
             </div>
           )}
@@ -156,17 +233,17 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
             </div>
           ))}
           
-          {isLoading && (
+          {(isLoading || isRoutingRequest) && (
             <div className="flex justify-center py-2">
               <div className="animate-pulse" style={{ color: 'var(--foreground)', opacity: 0.5 }}>
-                Thinking...
+                {isRoutingRequest ? 'Routing request...' : 'Thinking...'}
               </div>
             </div>
           )}
         </div>
 
         {/* Input */}
-        <form onSubmit={handleSubmit} className="p-4 border-t" style={{ borderColor: 'var(--select-border)' }}>
+        <form onSubmit={handleCustomSubmit} className="p-4 border-t" style={{ borderColor: 'var(--select-border)' }}>
           <div className="flex gap-2">
             <input
               type="text"
@@ -179,11 +256,11 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
                 borderColor: 'var(--select-border)',
                 color: 'var(--foreground)',
               }}
-              disabled={isLoading}
+              disabled={isLoading || isRoutingRequest}
             />
             <button
               type="submit"
-              disabled={isLoading || !input.trim()}
+              disabled={isLoading || isRoutingRequest || !input.trim()}
               className="px-4 py-2 text-sm font-medium rounded-md transition-colors disabled:opacity-50"
               style={{
                 backgroundColor: 'var(--button-bg)',

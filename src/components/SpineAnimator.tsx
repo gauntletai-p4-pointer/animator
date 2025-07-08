@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import SpineViewer from './SpineViewer';
 import ChatSidebar from './ChatSidebar';
+import ReferencesUploadSidebar from './ReferencesUploadSidebar';
 import { 
   Skeleton, 
   AnimationState,
@@ -230,6 +231,7 @@ export default function SpineAnimator() {
 
   return (
     <div className="flex h-screen">
+      <ReferencesUploadSidebar />
       <div className="flex-1 overflow-auto">
         <SpineViewer 
           key={animationsUpdated}
