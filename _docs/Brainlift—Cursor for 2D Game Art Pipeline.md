@@ -10,6 +10,13 @@
 	- or, an expert view but different from layperson (eg., [[State of the art in 2D character animations]] mentions Spine2D as a leading commercial option)
 	- our spiky take: **leveraging an approach like Spine's, with transformations/deformations, skeletons, inverse kinematic constraints, etc. can fix a lot of AI generation issues**
 
+# Agent behaviors
+- change the look of a character across its animations
+- create new characters
+- change a characters' animations
+- create environmental artwork
+- leverage as context global style references, specific contexts for animation or bodypart replacements
+
 # Approaches considered
 - animating SVGs
 	- generation of SVGs is lower quality than generation of raster images
@@ -21,4 +28,4 @@
 - image -> 3D -> animations -> 2D capture
 	- too much scope creep, although this is how a lot of animation is done in the industry
 - .psd -> Spine2D -> animations
-	- to get started, we are skipping the .psd and working with an existing Spine2D character.
+	- to get started, we are skipping the .psd and working with an existing Spine2D character
