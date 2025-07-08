@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
+import GeneratedImageDisplay from './GeneratedImageDisplay';
+import { loadReferenceImages, getRelevantReferenceImages, ReferenceImage } from '@/utils/loadReferenceImages';
 
 interface ColorValue {
   r: number;
@@ -40,9 +42,23 @@ interface ChatSidebarProps {
   onAnimationCreate?: (animation: AnimationData) => void;
 }
 
+interface GeneratedImage {
+  id: string;
+  imageUrl: string;
+  description: string;
+  revisedPrompt?: string;
+  rewrittenPrompt?: string;
+  itemType?: string;
+  color?: string;
+  timestamp: string;
+}
+
 export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: ChatSidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [isRoutingRequest, setIsRoutingRequest] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
+  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const [isLoadingReferences, setIsLoadingReferences] = useState(false);
   
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, append } = useChat({
     api: '/api/spine-assistant',
@@ -51,6 +67,28 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
       // The tool results will be in the message stream
     }
   });
+
+  /**
+   * Load reference images when component mounts
+   */
+  useEffect(() => {
+    const loadReferences = async () => {
+      console.log('🔄 ChatSidebar: Loading reference images...');
+      setIsLoadingReferences(true);
+      
+      try {
+        const images = await loadReferenceImages();
+        setReferenceImages(images);
+        console.log('✅ ChatSidebar: Reference images loaded successfully:', images.length);
+      } catch (error) {
+        console.error('❌ ChatSidebar: Error loading reference images:', error);
+      } finally {
+        setIsLoadingReferences(false);
+      }
+    };
+
+    loadReferences();
+  }, []);
 
   /**
    * Handles form submission by first routing through the LLM router
@@ -76,6 +114,10 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
     try {
       console.log('🔄 ChatSidebar: Calling LLM router...');
       
+      // Get relevant reference images for this request
+      const relevantReferences = getRelevantReferenceImages(referenceImages, userPrompt);
+      console.log('📸 ChatSidebar: Selected relevant reference images:', relevantReferences.length);
+      
       // Call the LLM router first
       const routerResponse = await fetch('/api/llm-router', {
         method: 'POST',
@@ -84,6 +126,7 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
         },
         body: JSON.stringify({
           userPrompt,
+          referenceImages: relevantReferences,
         }),
       });
 
@@ -94,19 +137,73 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
       const routerData = await routerResponse.json();
       console.log('📊 ChatSidebar: Router response:', routerData);
 
-      // Add router response to chat
-      await append({
-        role: 'assistant',
-        content: `🔍 Request categorized as: **${routerData.categorization.category}**\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
-      });
-
       // Handle the response based on the routing result
       if (routerData.result.useOriginalSystem) {
         console.log('🔄 ChatSidebar: Using original system for this request');
+        
+        // Add router response to chat for original system requests
+        await append({
+          role: 'assistant',
+          content: `🔍 Request categorized as: **${routerData.categorization.category}**\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
+        });
+        
         // Let the original system handle it - the form submission will proceed normally
         // after this function completes
       } else {
         console.log('✅ ChatSidebar: Request handled by new router system');
+        
+        // Handle image generation results
+        if (routerData.categorization.category === 'image_generation') {
+          
+          console.log('🔍 ChatSidebar: Checking image generation result...');
+          console.log('   ✅ Success:', routerData.result.success);
+          console.log('   🖼️ Has generatedImageUrl:', !!routerData.result.extractedParams?.generatedImageUrl);
+          console.log('   📋 ExtractedParams keys:', Object.keys(routerData.result.extractedParams || {}));
+          if (routerData.result.extractedParams?.generatedImageUrl) {
+            console.log('   🔗 Image URL:', routerData.result.extractedParams.generatedImageUrl);
+          }
+          
+          if (routerData.result.success && routerData.result.extractedParams?.generatedImageUrl) {
+            console.log('🖼️ ChatSidebar: Adding generated image to chat and display');
+            
+            // Add successful image generation response to chat
+            await append({
+              role: 'assistant',
+              content: `🎨 **Image Generated Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
+            });
+            
+            const newImage: GeneratedImage = {
+              id: Date.now().toString(),
+              imageUrl: routerData.result.extractedParams.generatedImageUrl,
+              description: routerData.result.extractedParams.description,
+              revisedPrompt: routerData.result.extractedParams.revisedPrompt,
+              rewrittenPrompt: routerData.result.extractedParams.rewrittenPrompt,
+              itemType: routerData.result.extractedParams.itemType,
+              color: routerData.result.extractedParams.color,
+              timestamp: routerData.result.extractedParams.timestamp,
+            };
+            
+            setGeneratedImages(prev => [...prev, newImage]);
+            console.log('✅ ChatSidebar: Generated image added to chat and state');
+            
+          } else {
+            console.log('❌ ChatSidebar: Image generation failed');
+            
+            // Add failed image generation response to chat
+            await append({
+              role: 'assistant',
+              content: `❌ **Image Generation Failed**\n\n**Original Request:** ${userPrompt}\n\n**Error:** ${routerData.result.error}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams?.rewrittenPrompt || 'N/A'}\n\nPlease try again with a different request.`,
+            });
+          }
+          
+        } else {
+          // For other categories (animations, export, etc.)
+          await append({
+            role: 'assistant',
+            content: `🔍 **Request Processed:** ${routerData.categorization.category}\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
+          });
+        }
+        
         // The new system has already handled the request
       }
 
@@ -124,6 +221,14 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
     } finally {
       setIsRoutingRequest(false);
     }
+  };
+
+  /**
+   * Removes a generated image from the display
+   */
+  const removeGeneratedImage = (imageId: string) => {
+    console.log('🗑️ ChatSidebar: Removing generated image:', imageId);
+    setGeneratedImages(prev => prev.filter(img => img.id !== imageId));
   };
 
   // Watch for tool results in messages
@@ -197,12 +302,24 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
               <p className="text-sm">Try asking me to:</p>
               <ul className="text-sm mt-2 space-y-1">
                 <li>&quot;Make the character wear a red hat&quot;</li>
+                <li>&quot;Give him a hat&quot;</li>
                 <li>&quot;Create a dance animation&quot;</li>
                 <li>&quot;Make him walk faster&quot;</li>
                 <li>&quot;Generate a sword texture&quot;</li>
-                <li>&quot;Add a jumping animation&quot;</li>
                 <li>&quot;Export the character assets&quot;</li>
               </ul>
+              
+              {isLoadingReferences && (
+                <div className="mt-4 text-xs" style={{ color: 'var(--foreground)', opacity: 0.4 }}>
+                  <div className="animate-pulse">Loading reference images...</div>
+                </div>
+              )}
+              
+              {!isLoadingReferences && referenceImages.length > 0 && (
+                <div className="mt-4 text-xs" style={{ color: 'var(--foreground)', opacity: 0.4 }}>
+                  <div>📸 {referenceImages.length} reference images loaded</div>
+                </div>
+              )}
             </div>
           )}
           
@@ -231,7 +348,28 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
                 </div>
               )}
             </div>
-          ))}
+                      ))}
+          
+          {/* Generated Images Display */}
+          {generatedImages.length > 0 && (
+            <div className="space-y-3">
+              <div className="text-sm font-medium text-center py-2" style={{ color: 'var(--foreground)', opacity: 0.7 }}>
+                Generated Images
+              </div>
+              {generatedImages.map((image) => (
+                <GeneratedImageDisplay
+                  key={image.id}
+                  imageUrl={image.imageUrl}
+                  description={image.description}
+                  revisedPrompt={image.revisedPrompt}
+                  rewrittenPrompt={image.rewrittenPrompt}
+                  itemType={image.itemType}
+                  color={image.color}
+                  onClose={() => removeGeneratedImage(image.id)}
+                />
+              ))}
+            </div>
+          )}
           
           {(isLoading || isRoutingRequest) && (
             <div className="flex justify-center py-2">

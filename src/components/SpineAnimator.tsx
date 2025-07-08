@@ -56,6 +56,13 @@ export default function SpineAnimator() {
   const handleSkeletonLoaded = (skeleton: Skeleton, animationState: AnimationState) => {
     skeletonRef.current = skeleton;
     animationStateRef.current = animationState;
+    
+    // Log available slots and attachments for debugging
+    console.log('🦴 SKELETON LOADED: Available slots:', skeleton.slots.map(slot => slot.data.name));
+    if (skeleton.skin) {
+      console.log('🎨 SKELETON LOADED: Current skin:', skeleton.skin.name);
+      console.log('📎 SKELETON LOADED: Available attachments:', skeleton.skin.attachments ? Object.keys(skeleton.skin.attachments) : 'None');
+    }
   };
 
   const handleAppearanceChange = (change: AppearanceChange) => {
@@ -81,10 +88,36 @@ export default function SpineAnimator() {
         // Change a specific attachment
         try {
           if (typeof change.value === 'string') {
-            skeleton.setAttachment(change.target, change.value);
+            // Check if the slot exists
+            const slot = skeleton.findSlot(change.target);
+            if (!slot) {
+              console.warn(`Slot "${change.target}" not found. Available slots:`, skeleton.slots.map(s => s.data.name));
+              break;
+            }
+            
+            // Check if the attachment exists in the skin
+            const skin = skeleton.skin;
+            if (!skin) {
+              console.warn('No skin available on skeleton');
+              break;
+            }
+            
+            const attachment = skin.getAttachment(slot.data.index, change.value);
+            if (!attachment) {
+              console.warn(`Attachment "${change.value}" not found for slot "${change.target}".`);
+              console.warn('This attachment does not exist in the current skeleton. Skipping attachment change.');
+              
+              // List available attachments for debugging
+              console.log('Available skin attachments:', skin.attachments ? Object.keys(skin.attachments) : 'None');
+            } else {
+              skeleton.setAttachment(change.target, change.value);
+              console.log(`Successfully set attachment "${change.value}" on slot "${change.target}"`);
+            }
           }
         } catch (e) {
           console.error('Failed to set attachment:', e);
+          console.log('Available slots:', skeleton.slots.map(slot => slot.data.name));
+          console.log('Current skin:', skeleton.skin ? skeleton.skin.name : 'No skin');
         }
         break;
 

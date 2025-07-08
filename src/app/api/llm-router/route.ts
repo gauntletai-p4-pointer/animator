@@ -29,6 +29,78 @@ const RouterResponseSchema = z.object({
 type RouterResponse = z.infer<typeof RouterResponseSchema>;
 
 /**
+ * Rewrites user prompts into simple image generation requests using GPT-4.1-mini
+ * @param userPrompt - The original user prompt
+ * @returns Promise<string> - The rewritten prompt for image generation
+ */
+async function rewritePromptForImageGeneration(userPrompt: string): Promise<string> {
+  console.log('✏️ PROMPT REWRITER: Starting prompt rewrite for image generation');
+  console.log('📝 Original prompt:', userPrompt);
+
+  const systemPrompt = `You are a prompt rewriter that converts user requests into simple image generation prompts.
+
+Your job is to analyze the user's request and rewrite it as a clear, simple image generation prompt in the format:
+"Generate an image of [item/object/thing]"
+
+Examples:
+- "Give him a hat" → "Generate an image of a hat"
+- "Make the character wear red shoes" → "Generate an image of red shoes"  
+- "Add a sword to his hand" → "Generate an image of a sword"
+- "Create armor for his chest" → "Generate an image of chest armor"
+- "Make him wear goggles" → "Generate an image of goggles"
+- "Give him a blue cape" → "Generate an image of a blue cape"
+
+Focus on:
+1. Extracting the main item/object to be generated
+2. Including important descriptors (color, style, type)
+3. Keeping the prompt simple and direct
+4. Always starting with "Generate an image of"
+
+Respond with ONLY the rewritten prompt, nothing else.`;
+
+  try {
+    console.log('🤖 PROMPT REWRITER: Sending request to GPT-4.1-mini');
+    
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.2, // Low temperature for consistent rewriting
+      maxTokens: 100, // Short responses expected
+    });
+
+    const rewrittenPrompt = result.text.trim();
+    console.log('✅ PROMPT REWRITER: Successfully rewritten prompt:', rewrittenPrompt);
+    
+    return rewrittenPrompt;
+
+  } catch (error) {
+    console.error('❌ PROMPT REWRITER: Error during prompt rewriting:', error);
+    
+    // Fallback: create a simple rewrite based on common patterns
+    let fallbackPrompt = userPrompt;
+    
+    // Simple pattern matching for common requests
+    if (userPrompt.toLowerCase().includes('hat')) {
+      fallbackPrompt = 'Generate an image of a hat';
+    } else if (userPrompt.toLowerCase().includes('shoe') || userPrompt.toLowerCase().includes('boot')) {
+      fallbackPrompt = 'Generate an image of shoes';
+    } else if (userPrompt.toLowerCase().includes('sword')) {
+      fallbackPrompt = 'Generate an image of a sword';
+    } else if (userPrompt.toLowerCase().includes('armor')) {
+      fallbackPrompt = 'Generate an image of armor';
+    } else {
+      fallbackPrompt = `Generate an image based on: ${userPrompt}`;
+    }
+    
+    console.log('🔄 PROMPT REWRITER: Using fallback rewrite:', fallbackPrompt);
+    return fallbackPrompt;
+  }
+}
+
+/**
  * Categorizes user requests using GPT-4.1-mini
  * @param userPrompt - The user's natural language request
  * @returns Promise<RouterResponse> - The categorized request with confidence and reasoning
@@ -165,13 +237,14 @@ Example response format:
 }
 
 /**
- * Stubbed function for image generation requests
+ * Image generation function using OpenAI GPT-image-1
  * Example: "Make the character wear a red hat"
  */
-async function handleImageGeneration(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleImageGeneration(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🎨 IMAGE GENERATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   // Extract potential image generation parameters
   const itemType = extractedParams?.itemType || 'accessory';
@@ -183,37 +256,167 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
   console.log('   🎨 Color:', color);
   console.log('   📄 Description:', description);
   
-  // Simulate image generation process
-  console.log('⚡ IMAGE GENERATION: Starting image generation process...');
-  console.log('   🔧 Analyzing prompt for visual elements');
-  console.log('   🎨 Generating texture atlas compatible image');
-  console.log('   📐 Creating appropriate dimensions for Spine2D');
-  console.log('   💾 Preparing asset for character integration');
-  
-  return {
-    success: true,
-    message: `Image generation request processed for: ${itemType} (${color})`,
-    category: 'image_generation',
-    userPrompt,
-    extractedParams: {
-      itemType,
-      color,
-      description,
-      generatedAsset: 'placeholder_image.png',
-      dimensions: { width: 64, height: 64 },
-      format: 'PNG',
-    },
-  };
+  try {
+    console.log('⚡ IMAGE GENERATION: Starting GPT-image-1 generation...');
+    
+    // Step 1: Rewrite the user prompt for image generation
+    const rewrittenPrompt = await rewritePromptForImageGeneration(userPrompt);
+    console.log('📝 IMAGE GENERATION: Rewritten prompt:', rewrittenPrompt);
+    
+    // Step 2: Create a detailed prompt for Spine2D compatible assets
+    const enhancedPrompt = `${rewrittenPrompt}
+
+The image should be a 2D character sprite asset with these specifications:
+- Clean and simple design suitable for game sprites
+- Transparent background (PNG format)
+- High contrast and clear details
+- Appropriate size for character accessories
+- Style: cartoon/anime game art
+- Color: ${color}
+- Item type: ${itemType}
+
+Please generate an image that matches the art style and proportions of the reference character parts provided.
+
+Original user request: ${userPrompt}`;
+    
+    console.log('🚀 IMAGE GENERATION: Enhanced prompt:', enhancedPrompt);
+    
+    // Add reference context to prompt if images are provided
+    let finalPrompt = enhancedPrompt;
+    if (referenceImages && referenceImages.length > 0) {
+      console.log('📎 IMAGE GENERATION: Adding reference context to prompt');
+      const referenceNames = referenceImages.slice(0, 5).map(img => img.name).join(', ');
+      console.log(`   📸 Reference parts: ${referenceNames}`);
+      
+      finalPrompt += `\n\nReference art style context: This should match the art style of these character parts: ${referenceNames}. Use similar proportions, color palette, and artistic style.`;
+    }
+    
+    console.log('📨 IMAGE GENERATION: Final prompt for gpt-image-1:', finalPrompt);
+    
+    // Debug: Check if we have API key
+    console.log('🔑 IMAGE GENERATION: Has API key:', !!process.env.OPENAI_API_KEY);
+    console.log('🔑 IMAGE GENERATION: API key length:', process.env.OPENAI_API_KEY?.length || 0);
+    
+    // Make request to OpenAI Images API with gpt-image-1
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: finalPrompt,
+        n: 1,
+        size: '1024x1024',
+        quality: 'medium'
+      })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('❌ IMAGE GENERATION: GPT-image-1 API error:', errorData);
+      throw new Error(`GPT-image-1 API error: ${response.status} - ${errorData.error?.message || 'Unknown error'}`);
+    }
+    
+    const imageData = await response.json();
+    console.log('✅ IMAGE GENERATION: GPT-image-1 response received');
+    console.log('📋 IMAGE GENERATION: Full response data:', JSON.stringify(imageData, null, 2));
+    
+    // Check if response has expected structure
+    if (!imageData.data || !Array.isArray(imageData.data) || imageData.data.length === 0) {
+      console.error('❌ IMAGE GENERATION: Unexpected response format - no data array');
+      console.error('📄 Response structure:', Object.keys(imageData));
+      throw new Error('Invalid response format from GPT-image-1 API');
+    }
+    
+    const firstDataItem = imageData.data[0];
+    const revisedPrompt = firstDataItem.revised_prompt || finalPrompt;
+    
+    let generatedImageUrl: string;
+    
+    // Handle both URL and base64 response formats
+    if (firstDataItem.url) {
+      // URL format (like DALL-E)
+      generatedImageUrl = firstDataItem.url;
+      console.log('🖼️ IMAGE GENERATION: Generated image URL:', generatedImageUrl);
+    } else if (firstDataItem.b64_json) {
+      // Base64 format (GPT-image-1)
+      generatedImageUrl = `data:image/png;base64,${firstDataItem.b64_json}`;
+      console.log('🖼️ IMAGE GENERATION: Generated image as base64 data (converted to data URL)');
+      console.log('📏 IMAGE GENERATION: Base64 data length:', firstDataItem.b64_json.length);
+    } else {
+      console.error('❌ IMAGE GENERATION: No URL or base64 data in response');
+      console.error('📄 First data item:', JSON.stringify(firstDataItem, null, 2));
+      throw new Error('No image data returned from GPT-image-1 API');
+    }
+    
+    console.log('📝 IMAGE GENERATION: Revised prompt:', revisedPrompt);
+    
+    return {
+      success: true,
+      message: `Image generated successfully for: ${itemType} (${color})`,
+      category: 'image_generation',
+      userPrompt,
+      extractedParams: {
+        itemType,
+        color,
+        description,
+        rewrittenPrompt,
+        generatedImageUrl,
+        revisedPrompt,
+        enhancedPrompt,
+        finalPrompt,
+        referenceImagesUsed: referenceImages ? referenceImages.length : 0,
+        dimensions: { width: 1024, height: 1024 },
+        format: 'PNG',
+        model: 'gpt-image-1',
+        timestamp: new Date().toISOString(),
+      },
+    };
+    
+  } catch (error) {
+    console.error('❌ IMAGE GENERATION: Error with image generation:', error);
+    
+    // Try to get a fallback rewritten prompt even in error case
+    let fallbackRewrittenPrompt = `Generate an image of ${description}`;
+    try {
+      fallbackRewrittenPrompt = await rewritePromptForImageGeneration(userPrompt);
+    } catch (rewriteError) {
+      console.error('❌ IMAGE GENERATION: Error with fallback prompt rewrite:', rewriteError);
+    }
+    
+    return {
+      success: false,
+      message: `Image generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      category: 'image_generation',
+      userPrompt,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      extractedParams: {
+        itemType,
+        color,
+        description,
+        rewrittenPrompt: fallbackRewrittenPrompt,
+        generatedImageUrl: null,
+        referenceImagesUsed: referenceImages ? referenceImages.length : 0,
+        dimensions: { width: 1024, height: 1024 },
+        format: 'PNG',
+        model: 'gpt-image-1',
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
 }
 
 /**
  * Stubbed function for walk animation requests
  * Example: "Make him walk faster"
  */
-async function handleWalkAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleWalkAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🚶 WALK ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   // Extract animation parameters
   const speed = extractedParams?.speed || 'normal';
@@ -267,10 +470,11 @@ async function handleWalkAnimation(userPrompt: string, extractedParams?: Record<
 /**
  * Stubbed function for run animation requests
  */
-async function handleRunAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleRunAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🏃 RUN ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -284,10 +488,11 @@ async function handleRunAnimation(userPrompt: string, extractedParams?: Record<s
 /**
  * Stubbed function for idle animation requests
  */
-async function handleIdleAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleIdleAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🧍 IDLE ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -301,10 +506,11 @@ async function handleIdleAnimation(userPrompt: string, extractedParams?: Record<
 /**
  * Stubbed function for jump animation requests
  */
-async function handleJumpAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleJumpAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🦘 JUMP ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -318,10 +524,11 @@ async function handleJumpAnimation(userPrompt: string, extractedParams?: Record<
 /**
  * Stubbed function for dance animation requests
  */
-async function handleDanceAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleDanceAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('💃 DANCE ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -335,10 +542,11 @@ async function handleDanceAnimation(userPrompt: string, extractedParams?: Record
 /**
  * Stubbed function for other animation requests
  */
-async function handleOtherAnimation(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleOtherAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🎭 OTHER ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -353,10 +561,11 @@ async function handleOtherAnimation(userPrompt: string, extractedParams?: Record
  * Stubbed function for export assets requests
  * Example: "Export the character assets"
  */
-async function handleExportAssets(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleExportAssets(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('📦 EXPORT ASSETS: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   // Extract export parameters
   const format = extractedParams?.format || 'spine';
@@ -418,10 +627,11 @@ async function handleExportAssets(userPrompt: string, extractedParams?: Record<s
 /**
  * Stubbed function for appearance change requests (fallback to original system)
  */
-async function handleAppearanceChange(userPrompt: string, extractedParams?: Record<string, any>) {
+async function handleAppearanceChange(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🎨 APPEARANCE CHANGE: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
+  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
   
   return {
     success: true,
@@ -436,36 +646,40 @@ async function handleAppearanceChange(userPrompt: string, extractedParams?: Reco
 /**
  * Routes the categorized request to the appropriate handler
  */
-async function routeRequest(category: RequestCategoryType, userPrompt: string, extractedParams?: Record<string, any>) {
+async function routeRequest(category: RequestCategoryType, userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
   console.log('🎯 LLM Router: Routing request to category:', category);
+  
+  if (referenceImages && referenceImages.length > 0) {
+    console.log('🖼️ LLM Router: Passing reference images to handler:', referenceImages.length);
+  }
   
   switch (category) {
     case 'image_generation':
-      return await handleImageGeneration(userPrompt, extractedParams);
+      return await handleImageGeneration(userPrompt, extractedParams, referenceImages);
     
     case 'walk_animation':
-      return await handleWalkAnimation(userPrompt, extractedParams);
+      return await handleWalkAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'run_animation':
-      return await handleRunAnimation(userPrompt, extractedParams);
+      return await handleRunAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'idle_animation':
-      return await handleIdleAnimation(userPrompt, extractedParams);
+      return await handleIdleAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'jump_animation':
-      return await handleJumpAnimation(userPrompt, extractedParams);
+      return await handleJumpAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'dance_animation':
-      return await handleDanceAnimation(userPrompt, extractedParams);
+      return await handleDanceAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'other_animation':
-      return await handleOtherAnimation(userPrompt, extractedParams);
+      return await handleOtherAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'export_assets':
-      return await handleExportAssets(userPrompt, extractedParams);
+      return await handleExportAssets(userPrompt, extractedParams, referenceImages);
     
     case 'appearance_change':
-      return await handleAppearanceChange(userPrompt, extractedParams);
+      return await handleAppearanceChange(userPrompt, extractedParams, referenceImages);
     
     default:
       console.log('❓ LLM Router: Unknown category, using fallback');
@@ -475,6 +689,7 @@ async function routeRequest(category: RequestCategoryType, userPrompt: string, e
         category: 'unknown',
         userPrompt,
         extractedParams,
+        referenceImages,
         useOriginalSystem: true,
       };
   }
@@ -487,13 +702,21 @@ export async function POST(req: Request) {
     const body = await req.json();
     console.log('📦 LLM Router: Request body:', body);
     
-    const { userPrompt } = body;
+    const { userPrompt, referenceImages } = body;
     
     if (!userPrompt || typeof userPrompt !== 'string') {
       console.error('❌ LLM Router: Invalid or missing userPrompt');
       return Response.json({ 
         error: 'Invalid or missing userPrompt' 
       }, { status: 400 });
+    }
+
+    // Log reference images if provided
+    if (referenceImages && Array.isArray(referenceImages)) {
+      console.log('🖼️ LLM Router: Reference images provided:', referenceImages.length);
+      referenceImages.forEach((img, index) => {
+        console.log(`   📸 Reference ${index + 1}:`, img.name || img.path || 'unnamed');
+      });
     }
 
     console.log('🔄 LLM Router: Starting categorization process');
@@ -506,7 +729,8 @@ export async function POST(req: Request) {
     const routingResult = await routeRequest(
       categorization.category, 
       userPrompt, 
-      categorization.extractedParams
+      categorization.extractedParams,
+      referenceImages
     );
     console.log('🎯 LLM Router: Routing result:', routingResult);
     
