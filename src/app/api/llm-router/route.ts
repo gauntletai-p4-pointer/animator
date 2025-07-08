@@ -474,6 +474,74 @@ function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPa
 }
 
 /**
+ * Analyzes a reference body part image to describe its pose using GPT-4o Mini
+ * @param imageBuffer - The image buffer to analyze
+ * @param bodyPartName - The name of the body part (e.g., "goggles", "head", "foot")
+ * @returns Promise<string> - Detailed pose description
+ */
+async function analyzePoseWithGPT4o(imageBuffer: Buffer, bodyPartName: string): Promise<string> {
+  console.log(`🔍 POSE ANALYSIS: Analyzing pose for body part: ${bodyPartName}`);
+  
+  try {
+    // Convert buffer to base64 for GPT-4o Mini
+    const base64Image = imageBuffer.toString('base64');
+    const dataUrl = `data:image/png;base64,${base64Image}`;
+    
+    console.log(`📸 POSE ANALYSIS: Image converted to base64 (${base64Image.length} chars)`);
+    
+    const analysisPrompt = `You are a pose analysis expert for 2D character sprites. Analyze this image of a "${bodyPartName}" and provide a detailed description of its pose, orientation, and visual characteristics.
+
+Focus on these key aspects:
+1. **ORIENTATION**: Which direction is it facing? (left, right, front, 3/4 view, etc.)
+2. **ANGLE**: What is the viewing angle? (straight-on, tilted, angled, etc.)
+3. **POSITIONING**: How is it positioned in the frame? (centered, offset, etc.)
+4. **PROPORTIONS**: What are the size ratios and shape characteristics?
+5. **PERSPECTIVE**: What is the camera/viewing perspective?
+6. **DISTINCTIVE FEATURES**: Any unique visual elements that define the pose?
+
+Provide a detailed, technical description that another AI could use to recreate the exact same pose and orientation. Be specific about angles, directions, and positioning.
+
+Example format:
+"The ${bodyPartName} is positioned at a 3/4 left-facing angle, tilted slightly upward at approximately 15 degrees. It's centered in the frame with the main bulk oriented toward the left side. The proportions show..."
+
+Be precise and descriptive - this description will be used to generate a new item that matches this exact pose.`;
+
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: analysisPrompt },
+            { 
+              type: 'image', 
+              image: dataUrl
+            }
+          ]
+        }
+      ],
+      temperature: 0.1, // Low temperature for consistent analysis
+      maxTokens: 500,
+    });
+
+    const poseDescription = result.text.trim();
+    console.log(`✅ POSE ANALYSIS: Generated pose description (${poseDescription.length} chars)`);
+    console.log(`📝 POSE ANALYSIS: Description: ${poseDescription}`);
+    
+    return poseDescription;
+
+  } catch (error) {
+    console.error('❌ POSE ANALYSIS: Error analyzing pose:', error);
+    
+    // Fallback description
+    const fallbackDescription = `The ${bodyPartName} is positioned in a standard forward-facing orientation, centered in the frame with typical proportions for a 2D character sprite.`;
+    console.log(`🔄 POSE ANALYSIS: Using fallback description: ${fallbackDescription}`);
+    
+    return fallbackDescription;
+  }
+}
+
+/**
  * Image generation function using OpenAI GPT-image-1
  * Example: "Make the character wear a red hat"
  */
@@ -492,6 +560,9 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
   console.log('   🎯 Item type:', itemType);
   console.log('   🎨 Color:', color);
   console.log('   📄 Description:', description);
+  
+  // Initialize variables at function level
+  let poseDescription = '';
   
   try {
     console.log('⚡ IMAGE GENERATION: Starting image generation process...');
@@ -526,12 +597,36 @@ The image should be a 2D character sprite asset with these specifications:
 
 Original user request: ${userPrompt}`;
 
-    // Step 5: Add reference context based on filtered images
+    // Step 5: Analyze pose of body part reference image using GPT-4o Mini
     if (filteredReferenceImages.length > 0) {
       console.log('🎨 IMAGE GENERATION: Adding reference context to prompt');
       
       const bodyPartImages = filteredReferenceImages.filter(img => !img.url.startsWith('data:'));
       const userImages = filteredReferenceImages.filter(img => img.url.startsWith('data:'));
+      
+      // Analyze the pose of the body part reference image
+      if (bodyPartImages.length > 0) {
+        const bodyPartImg = bodyPartImages[0];
+        console.log(`🔍 IMAGE GENERATION: Analyzing pose of reference body part: ${bodyPartImg.name}`);
+        
+        try {
+          // Read the body part image for pose analysis
+          const fs = require('fs');
+          const path = require('path');
+          const filePath = bodyPartImg.url.startsWith('/') ? `public${bodyPartImg.url}` : `public/${bodyPartImg.url}`;
+          const fullPath = path.resolve(process.cwd(), filePath);
+          
+          if (fs.existsSync(fullPath)) {
+            const imageBuffer = fs.readFileSync(fullPath);
+            poseDescription = await analyzePoseWithGPT4o(imageBuffer, bodyPartImg.name);
+            console.log(`📝 IMAGE GENERATION: Pose analysis complete for ${bodyPartImg.name}`);
+          } else {
+            console.warn(`⚠️ IMAGE GENERATION: Body part image not found for pose analysis: ${fullPath}`);
+          }
+        } catch (error) {
+          console.error(`❌ IMAGE GENERATION: Error during pose analysis:`, error);
+        }
+      }
       
       let referenceContext = '\n\n=== REFERENCE STYLE CONTEXT ===\n';
       
@@ -543,6 +638,13 @@ Original user request: ${userPrompt}`;
         referenceContext += `• POSITIONING: Keep the same stance, angle, and directional facing\n`;
         referenceContext += `• PERSPECTIVE: Match the exact viewing angle (front, side, 3/4, etc.)\n`;
         referenceContext += `Examples: If foot points right, generate shoe pointing right. If head tilts left, generate head tilting left.\n\n`;
+        
+        // Add detailed pose analysis from GPT-4o Mini
+        if (poseDescription) {
+          referenceContext += `=== DETAILED POSE ANALYSIS ===\n`;
+          referenceContext += `${poseDescription}\n\n`;
+          referenceContext += `CRITICAL: Use this detailed pose description to ensure EXACT pose matching. The generated item must have identical orientation, angle, positioning, and proportions as described above.\n\n`;
+        }
       }
       
       if (userImages.length > 0) {
@@ -550,7 +652,7 @@ Original user request: ${userPrompt}`;
       }
       
       referenceContext += 'PRIORITY ORDER:\n';
-      referenceContext += '1. FIRST: Match exact pose, proportions, and orientation from the body part reference\n';
+      referenceContext += '1. FIRST: Match exact pose, proportions, and orientation from the body part reference (as detailed in pose analysis)\n';
       referenceContext += '2. THEN: Apply artistic style and aesthetics from user references\n';
       referenceContext += '3. FINALLY: Apply the requested modifications while preserving the original pose structure\n\n';
       referenceContext += 'The generated image must look like it could replace the original body part seamlessly in terms of pose and proportions.';
@@ -741,6 +843,7 @@ Original user request: ${userPrompt}`;
         filteredReferenceImages,
         referenceImagesUsed: referenceImages ? referenceImages.length : 0,
         referenceImageNames: referenceImages ? referenceImages.map(img => img.name) : [],
+        poseDescription, // Add pose analysis results
         dimensions: { width: 1024, height: 1024 },
         format: 'PNG',
         model: 'gpt-image-1',
@@ -773,6 +876,7 @@ Original user request: ${userPrompt}`;
         rewrittenPrompt: fallbackRewrittenPrompt,
         generatedImageUrl: null,
         referenceImagesUsed: referenceImages ? referenceImages.length : 0,
+        poseDescription: poseDescription || 'Not available due to error',
         dimensions: { width: 1024, height: 1024 },
         format: 'PNG',
         model: 'gpt-image-1',
