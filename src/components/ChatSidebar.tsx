@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import GeneratedImageDisplay from './GeneratedImageDisplay';
-import { loadReferenceImages, getRelevantReferenceImages, getRelevantReferenceImagesWithOriginal, getUserUploadedImages, combineReferenceImages, ReferenceImage } from '@/utils/loadReferenceImages';
+import { loadReferenceImages, getRelevantReferenceImages, getRelevantReferenceImagesWithOriginal, getUserUploadedImages, combineReferenceImages, ReferenceImage, detectTargetBodyPart } from '@/utils/loadReferenceImages';
 import { makeTransparent } from '@/utils/backgroundRemoval';
 import ReferenceImageDisplay from './ReferenceImageDisplay';
 
@@ -225,40 +225,73 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
       console.log('🔄 ChatSidebar: Calling LLM router...');
       
       // Try to detect the target body part from the prompt
-      const targetSlot = detectTargetSlot(userPrompt);
-      console.log('🎯 ChatSidebar: Detected target slot:', targetSlot || 'auto-detect from prompt');
+      const targetSlot = detectTargetBodyPart(userPrompt);
+      console.log('🎯 ChatSidebar: Detected target body part:', targetSlot || 'auto-detect from prompt');
       
-      // Get relevant reference images for this request (including original body part)
+            // Get relevant reference images for this request (including original body part)
       const relevantReferences = getRelevantReferenceImagesWithOriginal(referenceImages, userPrompt, targetSlot || undefined);
       console.log('📸 ChatSidebar: Selected relevant reference images:', relevantReferences.length);
       
-      // Update the current reference images for display
-      setCurrentReferenceImages(relevantReferences);
+      // VALIDATION: Ensure only one body part reference image is attached
+      const bodyPartImages = relevantReferences.filter(img => !img.url.startsWith('data:'));
+      const userImages = relevantReferences.filter(img => img.url.startsWith('data:'));
+      
+      console.log('🔍 VALIDATION: Reference image composition check:');
+      console.log('   📁 Body part images:', bodyPartImages.length);
+      console.log('   📤 User images:', userImages.length);
+      console.log('   📸 Total images:', relevantReferences.length);
+      
+      if (bodyPartImages.length > 1) {
+        console.error('❌ VALIDATION FAILED: Multiple body part images detected!');
+        console.error('   Body part images found:', bodyPartImages.map(img => img.name));
+        console.error('   This violates the single body part rule!');
+        
+        // Show validation error in chat
+        await append({
+          role: 'assistant',
+          content: `❌ **VALIDATION ERROR: Multiple Body Part Images**\n\nDetected ${bodyPartImages.length} body part images: ${bodyPartImages.map(img => img.name).join(', ')}\n\nOnly ONE body part reference image should be attached at a time. This may cause unexpected results.\n\n*Using only the first body part image: ${bodyPartImages[0].name}*`,
+        });
+        
+        // Fix the issue by keeping only the first body part image
+        const fixedReferences = [...userImages, bodyPartImages[0]];
+        setCurrentReferenceImages(fixedReferences);
+        console.log('🔧 VALIDATION: Fixed by keeping only first body part image:', bodyPartImages[0].name);
+      } else if (bodyPartImages.length === 1) {
+        console.log('✅ VALIDATION PASSED: Single body part image confirmed:', bodyPartImages[0].name);
+        setCurrentReferenceImages(relevantReferences);
+      } else {
+        console.log('⚠️ VALIDATION: No body part images found, using user images only');
+        setCurrentReferenceImages(relevantReferences);
+      }
+      
       setCurrentTargetSlot(targetSlot || '');
       
-              if (relevantReferences.length > 0) {
-          console.log('📸 ChatSidebar: Reference image names:', relevantReferences.map(img => img.name));
-          
-          // Show the selected reference images in the chat
-          const bodyPartImages = relevantReferences.filter(img => !img.url.startsWith('data:'));
-          const userImages = relevantReferences.filter(img => img.url.startsWith('data:'));
-          
-          console.log('🖼️ ChatSidebar: Reference images for display:');
-          console.log('   📁 Body part images:', bodyPartImages.length, bodyPartImages.map(img => `${img.name} -> ${img.url}`));
-          console.log('   📤 User images:', userImages.length, userImages.map(img => `${img.name} -> ${img.url.substring(0, 50)}...`));
-          
-          let referenceDescription = '';
-          if (bodyPartImages.length > 0) {
-            referenceDescription += `• **Body Part Reference:** ${bodyPartImages[0].name} (for proportions and positioning)\n`;
-          }
-          if (userImages.length > 0) {
-            referenceDescription += `• **User Aesthetic References:** ${userImages.map(img => img.name).join(', ')} (for art style)\n`;
-          }
+      if (relevantReferences.length > 0) {
+        console.log('📸 ChatSidebar: Reference image names:', relevantReferences.map(img => img.name));
         
-                            await append({
-            role: 'assistant',
-            content: `🔍 **Reference Images Selected for Generation:**\n\n${referenceDescription}\n*The selected reference images are displayed below and will be sent to GPT-image-1 to provide context for generating your request.*`,
-          });
+        console.log('🖼️ ChatSidebar: Reference images for display:');
+        console.log('   📁 Body part images:', bodyPartImages.length, bodyPartImages.map(img => `${img.name} -> ${img.url}`));
+        console.log('   📤 User images:', userImages.length, userImages.map(img => `${img.name} -> ${img.url.substring(0, 50)}...`));
+        
+        let referenceDescription = '';
+        if (bodyPartImages.length > 0) {
+          referenceDescription += `• **Body Part Reference:** ${bodyPartImages[0].name} (for proportions and positioning)\n`;
+        }
+        if (userImages.length > 0) {
+          referenceDescription += `• **User Aesthetic References:** ${userImages.map(img => img.name).join(', ')} (for art style)\n`;
+        }
+        
+        // Add validation status to the description
+        const validationStatus = bodyPartImages.length === 1 ? 
+          '\n✅ **Validation:** Single body part rule enforced' : 
+          bodyPartImages.length > 1 ? 
+            '\n⚠️ **Validation:** Multiple body parts detected, using first one only' : 
+            '\n⚠️ **Validation:** No body part reference available';
+      
+        await append({
+          role: 'assistant',
+          content: `🔍 **Reference Images Selected for Generation:**\n\n${referenceDescription}${validationStatus}\n\n*The selected reference images are displayed below and will be sent to GPT-image-1 to provide context for generating your request.*`,
+        });
       } else {
         console.log('⚠️ ChatSidebar: No relevant reference images selected');
         console.log('📋 ChatSidebar: Total available reference images:', referenceImages.length);

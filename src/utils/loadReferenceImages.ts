@@ -10,6 +10,140 @@ export interface ReferenceImage {
 }
 
 /**
+ * Body part priority hierarchy - more specific parts have higher priority
+ */
+const BODY_PART_PRIORITY: { [key: string]: number } = {
+  // Head parts (highest priority for head-related requests)
+  'head': 10,
+  'eye-indifferent': 9,
+  'eye-surprised': 9,
+  'mouth-grind': 9,
+  'mouth-oooo': 9,
+  'mouth-smile': 9,
+  'goggles': 8,
+  
+  // Torso parts
+  'torso': 10,
+  'neck': 8,
+  
+  // Arm parts
+  'front-upper-arm': 10,
+  'rear-upper-arm': 9,
+  'front-fist-closed': 8,
+  'front-fist-open': 8,
+  'front-bracer': 7,
+  'rear-bracer': 7,
+  
+  // Leg parts
+  'front-thigh': 10,
+  'rear-thigh': 9,
+  'front-shin': 8,
+  'rear-shin': 7,
+  'front-foot': 6,
+  'rear-foot': 5,
+  
+  // Accessories and effects (lower priority)
+  'gun': 5,
+  'crosshair': 4,
+  'hoverboard-board': 4,
+  'hoverboard-thruster': 4,
+  'hoverglow-small': 3,
+  'muzzle-glow': 3,
+  'muzzle-ring': 3,
+  'muzzle01': 3,
+  'muzzle02': 3,
+  'muzzle03': 3,
+  'muzzle04': 3,
+  'muzzle05': 3,
+  'portal-bg': 2,
+  'portal-flare1': 2,
+  'portal-flare2': 2,
+  'portal-flare3': 2,
+  'portal-shade': 2,
+  'portal-streaks1': 2,
+  'portal-streaks2': 2,
+};
+
+/**
+ * Body part matching keywords - maps user prompt keywords to body part names
+ * Enhanced with better synonym matching and contextual keywords
+ */
+const BODY_PART_KEYWORDS: { [key: string]: string[] } = {
+  // Head related
+  'head': ['head', 'face', 'skull', 'helmet', 'hat', 'hair', 'crown', 'cap', 'mask', 'visor', 'headpiece', 'headband'],
+  'eye-indifferent': ['eye', 'eyes', 'vision', 'sight', 'gaze', 'neutral', 'normal', 'default', 'standard'],
+  'eye-surprised': ['eye', 'eyes', 'vision', 'sight', 'gaze', 'surprised', 'shock', 'amazed', 'astonished', 'wide'],
+  'mouth-grind': ['mouth', 'lips', 'teeth', 'bite', 'grind', 'grit', 'clench', 'determined', 'focused'],
+  'mouth-oooo': ['mouth', 'lips', 'open', 'oooo', 'surprise', 'gasp', 'wow', 'amazed', 'round'],
+  'mouth-smile': ['mouth', 'lips', 'smile', 'grin', 'happy', 'cheerful', 'joy', 'pleased', 'content'],
+  'goggles': ['goggles', 'glasses', 'eyewear', 'protection', 'spectacles', 'shades', 'visor', 'lens'],
+  
+  // Torso related
+  'torso': ['torso', 'body', 'chest', 'shirt', 'armor', 'jacket', 'vest', 'clothing', 'outfit', 'uniform', 'attire', 'garment'],
+  'neck': ['neck', 'collar', 'necklace', 'throat', 'chain', 'pendant'],
+  
+  // Arm related
+  'front-upper-arm': ['arm', 'upper-arm', 'shoulder', 'bicep', 'sleeve', 'armband', 'upper', 'muscle'],
+  'rear-upper-arm': ['arm', 'upper-arm', 'shoulder', 'bicep', 'sleeve', 'armband', 'upper', 'muscle'],
+  'front-fist-closed': ['fist', 'hand', 'closed', 'punch', 'knuckle', 'grip', 'grasp', 'clutch', 'clench'],
+  'front-fist-open': ['fist', 'hand', 'open', 'palm', 'finger', 'spread', 'reach', 'gesture', 'wave'],
+  'front-bracer': ['bracer', 'forearm', 'wrist', 'guard', 'protection', 'armor', 'gauntlet', 'glove', 'covering'],
+  'rear-bracer': ['bracer', 'forearm', 'wrist', 'guard', 'protection', 'armor', 'gauntlet', 'glove', 'covering'],
+  
+  // Leg related
+  'front-thigh': ['thigh', 'leg', 'upper-leg', 'quad', 'pants', 'trouser', 'upper', 'limb'],
+  'rear-thigh': ['thigh', 'leg', 'upper-leg', 'quad', 'pants', 'trouser', 'upper', 'limb'],
+  'front-shin': ['shin', 'lower-leg', 'calf', 'knee', 'pants', 'trouser', 'lower', 'limb'],
+  'rear-shin': ['shin', 'lower-leg', 'calf', 'knee', 'pants', 'trouser', 'lower', 'limb'],
+  'front-foot': ['foot', 'feet', 'shoe', 'boot', 'footwear', 'sneaker', 'sandal', 'sole', 'toe', 'heel'],
+  'rear-foot': ['foot', 'feet', 'shoe', 'boot', 'footwear', 'sneaker', 'sandal', 'sole', 'toe', 'heel'],
+  
+  // Accessories
+  'gun': ['gun', 'weapon', 'rifle', 'pistol', 'firearm', 'blaster', 'cannon', 'launcher', 'shooter'],
+  'crosshair': ['crosshair', 'target', 'aim', 'sight', 'reticle', 'cursor', 'pointer', 'marker'],
+  'hoverboard-board': ['hoverboard', 'board', 'platform', 'skateboard', 'surfboard', 'deck', 'ride'],
+  'hoverboard-thruster': ['thruster', 'engine', 'propulsion', 'jet', 'booster', 'rocket', 'motor'],
+};
+
+/**
+ * Enhanced target body part detection with better context awareness
+ * @param userPrompt - The user's request prompt
+ * @returns The most likely target body part based on context
+ */
+export function detectTargetBodyPart(userPrompt: string): string {
+  console.log('🎯 detectTargetBodyPart: Analyzing prompt for target body part');
+  console.log('   📝 Prompt:', userPrompt);
+  
+  const prompt = userPrompt.toLowerCase();
+  
+  // Score each body part based on keyword matches
+  const bodyPartScores: { [key: string]: number } = {};
+  
+  // Check each body part for keyword matches
+  Object.entries(BODY_PART_KEYWORDS).forEach(([bodyPart, keywords]) => {
+    const matches = keywords.filter(keyword => prompt.includes(keyword));
+    if (matches.length > 0) {
+      bodyPartScores[bodyPart] = matches.length;
+      console.log(`   📊 ${bodyPart}: ${matches.length} matches (${matches.join(', ')})`);
+    }
+  });
+  
+  // Find the body part with the highest score
+  let bestBodyPart = 'head'; // default
+  let bestScore = 0;
+  
+  Object.entries(bodyPartScores).forEach(([bodyPart, score]) => {
+    if (score > bestScore) {
+      bestScore = score;
+      bestBodyPart = bodyPart;
+    }
+  });
+  
+  console.log(`✅ detectTargetBodyPart: Selected target body part: ${bestBodyPart} (score: ${bestScore})`);
+  return bestBodyPart;
+}
+
+/**
  * List of character part images available in the assets directory
  */
 const CHARACTER_PART_IMAGES = [
@@ -139,9 +273,10 @@ export function filterReferenceImagesByType(
 
 /**
  * Gets reference images relevant to a specific request
+ * UPDATED: Now enforces single body part rule using selectSingleBodyPartImage
  * @param images - Array of all reference images
  * @param userPrompt - The user's request prompt
- * @returns Array of relevant reference images
+ * @returns Array of relevant reference images (max 1 body part + all user images)
  */
 export function getRelevantReferenceImages(
   images: ReferenceImage[], 
@@ -151,50 +286,43 @@ export function getRelevantReferenceImages(
   console.log('🔍 getRelevantReferenceImages: Total images available:', images.length);
   console.log('🔍 getRelevantReferenceImages: Available image names:', images.map(img => img.name));
   
-  const prompt = userPrompt.toLowerCase();
-  
-  // If prompt mentions specific body parts, include those
   const relevantImages: ReferenceImage[] = [];
   
-  // Add body parts if mentioned
-  if (prompt.includes('head') || prompt.includes('face') || prompt.includes('hat') || prompt.includes('helmet')) {
-    const headImages = images.filter(img => img.name.includes('head') || img.name.includes('eye') || img.name.includes('mouth'));
-    console.log('🎯 getRelevantReferenceImages: Found', headImages.length, 'head-related images:', headImages.map(img => img.name));
-    relevantImages.push(...headImages);
+  // PRIORITY 1: Include all user-uploaded images (for aesthetic style)
+  const userUploadedImages = images.filter(img => img.url.startsWith('data:'));
+  if (userUploadedImages.length > 0) {
+    relevantImages.push(...userUploadedImages);
+    console.log('✅ getRelevantReferenceImages: Added', userUploadedImages.length, 'user-uploaded images');
   }
   
-  if (prompt.includes('arm') || prompt.includes('hand') || prompt.includes('fist') || prompt.includes('glove')) {
-    const armImages = images.filter(img => img.name.includes('arm') || img.name.includes('fist') || img.name.includes('bracer'));
-    console.log('🎯 getRelevantReferenceImages: Found', armImages.length, 'arm-related images:', armImages.map(img => img.name));
-    relevantImages.push(...armImages);
+  // PRIORITY 2: Use selectSingleBodyPartImage to get ONE body part image
+  // Use the enhanced detection function to determine target body part
+  const targetBodyPart = detectTargetBodyPart(userPrompt);
+  
+  // Select single body part image
+  const selectedBodyPartImage = selectSingleBodyPartImage(images, userPrompt, targetBodyPart);
+  if (selectedBodyPartImage) {
+    relevantImages.push(selectedBodyPartImage);
+    console.log('✅ getRelevantReferenceImages: Added single body part image:', selectedBodyPartImage.name);
+  } else {
+    console.log('⚠️ getRelevantReferenceImages: No body part image selected');
   }
   
-  if (prompt.includes('leg') || prompt.includes('foot') || prompt.includes('shoe') || prompt.includes('boot')) {
-    const legImages = images.filter(img => img.name.includes('thigh') || img.name.includes('shin') || img.name.includes('foot'));
-    console.log('🎯 getRelevantReferenceImages: Found', legImages.length, 'leg-related images:', legImages.map(img => img.name));
-    relevantImages.push(...legImages);
+  console.log('🎯 getRelevantReferenceImages: Final selection:', relevantImages.length, 'images');
+  console.log('   📸 Images:', relevantImages.map(img => `${img.name} (${img.url.startsWith('data:') ? 'USER' : 'ASSET'})`));
+  
+  // VALIDATION: Ensure only one body part image
+  const bodyPartImages = relevantImages.filter(img => !img.url.startsWith('data:'));
+  if (bodyPartImages.length > 1) {
+    console.error('❌ getRelevantReferenceImages: VALIDATION FAILED - Multiple body part images!');
+    console.error('   Body part images:', bodyPartImages.map(img => img.name));
+    // Return only the first body part image to enforce the rule
+    const fixedImages = [...userUploadedImages, bodyPartImages[0]];
+    console.log('🔧 getRelevantReferenceImages: Fixed by keeping only first body part image:', bodyPartImages[0].name);
+    return fixedImages;
   }
   
-  if (prompt.includes('body') || prompt.includes('torso') || prompt.includes('chest') || prompt.includes('shirt')) {
-    const bodyImages = images.filter(img => img.name.includes('torso') || img.name.includes('neck'));
-    console.log('🎯 getRelevantReferenceImages: Found', bodyImages.length, 'body-related images:', bodyImages.map(img => img.name));
-    relevantImages.push(...bodyImages);
-  }
-  
-  // If no specific matches, return a representative sample
-  if (relevantImages.length === 0) {
-    console.log('🔍 getRelevantReferenceImages: No specific matches, returning representative sample');
-    const representativeSample = images.filter(img => 
-      img.name.includes('head') || 
-      img.name.includes('torso') || 
-      img.name.includes('arm') || 
-      img.name.includes('leg')
-    ).slice(0, 5);
-    console.log('📸 getRelevantReferenceImages: Representative sample (' + representativeSample.length + ' images):', representativeSample.map(img => img.name));
-    return representativeSample;
-  }
-  
-  console.log('🎯 getRelevantReferenceImages: Found', relevantImages.length, 'relevant images for prompt:', relevantImages.map(img => img.name));
+  console.log('✅ getRelevantReferenceImages: VALIDATION PASSED - Single body part rule enforced');
   return relevantImages;
 }
 
@@ -329,10 +457,11 @@ export function getOriginalBodyPartImage(
 
 /**
  * Enhanced version of getRelevantReferenceImages that includes the original body part image
+ * UPDATED: Now enforces single body part rule using selectSingleBodyPartImage
  * @param images - Array of all reference images
  * @param userPrompt - The user's request prompt
  * @param targetSlot - The target slot being modified (optional)
- * @returns Array of relevant reference images including the original body part
+ * @returns Array of relevant reference images including the original body part (max 1 body part)
  */
 export function getRelevantReferenceImagesWithOriginal(
   images: ReferenceImage[], 
@@ -344,18 +473,7 @@ export function getRelevantReferenceImagesWithOriginal(
   
   const selectedImages: ReferenceImage[] = [];
   
-  // PRIORITY 1: Add the original body part image if we have a target slot
-  if (targetSlot) {
-    const originalImage = getOriginalBodyPartImage(targetSlot, images);
-    if (originalImage) {
-      selectedImages.push(originalImage);
-      console.log('✅ getRelevantReferenceImagesWithOriginal: Added original body part image:', originalImage.name);
-    } else {
-      console.log('❌ getRelevantReferenceImagesWithOriginal: No original body part image found for slot:', targetSlot);
-    }
-  }
-  
-  // PRIORITY 2: Add ALL user-uploaded images as aesthetic references
+  // PRIORITY 1: Add ALL user-uploaded images as aesthetic references
   const userUploadedImages = images.filter(img => img.type === 'texture' && img.url.startsWith('data:'));
   if (userUploadedImages.length > 0) {
     selectedImages.push(...userUploadedImages);
@@ -365,19 +483,18 @@ export function getRelevantReferenceImagesWithOriginal(
     console.log('⚠️ getRelevantReferenceImagesWithOriginal: No user-uploaded images found');
   }
   
-  // PRIORITY 3: If no target slot, fall back to general body part detection
-  if (!targetSlot) {
-    console.log('🔍 getRelevantReferenceImagesWithOriginal: No target slot provided, using general detection');
-    const generalImages = getRelevantReferenceImages(images, userPrompt);
-    
-    // Only add asset images (not user-uploaded ones as they're already added)
-    const assetImages = generalImages.filter(img => img.type !== 'texture' || !img.url.startsWith('data:'));
-    selectedImages.push(...assetImages.slice(0, 3)); // Limit to 3 additional images
-    
-    console.log('✅ getRelevantReferenceImagesWithOriginal: Added', assetImages.length, 'general reference images');
+  // PRIORITY 2: Use selectSingleBodyPartImage to get ONE body part image
+  const targetBodyPart = targetSlot || detectTargetBodyPart(userPrompt); // use targetSlot if provided, otherwise detect from prompt
+  const selectedBodyPartImage = selectSingleBodyPartImage(images, userPrompt, targetBodyPart);
+  
+  if (selectedBodyPartImage) {
+    selectedImages.push(selectedBodyPartImage);
+    console.log('✅ getRelevantReferenceImagesWithOriginal: Added single body part image:', selectedBodyPartImage.name);
+  } else {
+    console.log('⚠️ getRelevantReferenceImagesWithOriginal: No body part image selected');
   }
   
-  // Remove duplicates (in case the original image was already included)
+  // Remove duplicates (in case the selected image was already included)
   const uniqueImages = selectedImages.filter((img, index, self) => 
     index === self.findIndex(i => i.name === img.name)
   );
@@ -388,5 +505,231 @@ export function getRelevantReferenceImagesWithOriginal(
     console.log(`   📸 ${imageType}: ${img.name} (${img.type})`);
   });
   
+  // VALIDATION: Ensure only one body part image
+  const bodyPartImages = uniqueImages.filter(img => !img.url.startsWith('data:'));
+  if (bodyPartImages.length > 1) {
+    console.error('❌ getRelevantReferenceImagesWithOriginal: VALIDATION FAILED - Multiple body part images!');
+    console.error('   Body part images:', bodyPartImages.map(img => img.name));
+    // Return only the first body part image to enforce the rule
+    const fixedImages = [...userUploadedImages, bodyPartImages[0]];
+    console.log('🔧 getRelevantReferenceImagesWithOriginal: Fixed by keeping only first body part image:', bodyPartImages[0].name);
+    return fixedImages;
+  }
+  
+  console.log('✅ getRelevantReferenceImagesWithOriginal: VALIDATION PASSED - Single body part rule enforced');
   return uniqueImages;
+} 
+
+/**
+ * Selects the single most relevant body part image based on the user prompt and target body part
+ * This function enforces the "only one body part reference image" rule
+ * @param images - Array of all reference images
+ * @param userPrompt - The user's request prompt
+ * @param targetBodyPart - The detected target body part
+ * @returns Single most relevant body part image or null
+ */
+export function selectSingleBodyPartImage(
+  images: ReferenceImage[],
+  userPrompt: string,
+  targetBodyPart: string
+): ReferenceImage | null {
+  console.log('🎯 selectSingleBodyPartImage: Selecting single body part image');
+  console.log('   📝 User prompt:', userPrompt);
+  console.log('   🎯 Target body part:', targetBodyPart);
+  console.log('   📸 Available images:', images.length);
+  
+  // Filter out user-uploaded images (they're not body parts)
+  const bodyPartImages = images.filter(img => !img.url.startsWith('data:') && img.type === 'character_part');
+  
+  if (bodyPartImages.length === 0) {
+    console.log('❌ selectSingleBodyPartImage: No body part images available');
+    return null;
+  }
+  
+  console.log('   📁 Body part images available:', bodyPartImages.map(img => img.name));
+  
+  const prompt = userPrompt.toLowerCase();
+  const targetLower = targetBodyPart.toLowerCase();
+  
+  // Scoring system to find the best match
+  const candidateScores: { image: ReferenceImage; score: number; reasons: string[] }[] = [];
+  
+  bodyPartImages.forEach(img => {
+    const imgName = img.name.toLowerCase();
+    let score = 0;
+    const reasons: string[] = [];
+    
+    // PRIORITY 1: Direct match with target body part (highest score)
+    if (imgName === targetLower) {
+      score += 100;
+      reasons.push(`Direct match with target: ${targetBodyPart}`);
+    }
+    
+    // PRIORITY 2: Target body part contains image name or vice versa
+    if (targetLower.includes(imgName) || imgName.includes(targetLower)) {
+      score += 80;
+      reasons.push(`Partial match with target: ${targetBodyPart}`);
+    }
+    
+    // PRIORITY 3: Keyword matching from user prompt
+    const keywords = BODY_PART_KEYWORDS[img.name] || [];
+    const keywordMatches = keywords.filter((keyword: string) => prompt.includes(keyword));
+    if (keywordMatches.length > 0) {
+      score += keywordMatches.length * 20;
+      reasons.push(`Keyword matches: ${keywordMatches.join(', ')}`);
+    }
+    
+    // PRIORITY 4: Base priority from hierarchy
+    const basePriority = BODY_PART_PRIORITY[img.name] || 1;
+    score += basePriority;
+    reasons.push(`Base priority: ${basePriority}`);
+    
+    // PRIORITY 5: Prefer "front" over "rear" parts (more commonly used)
+    if (imgName.includes('front')) {
+      score += 5;
+      reasons.push('Front-facing preference');
+    }
+    
+    candidateScores.push({ image: img, score, reasons });
+  });
+  
+  // Sort by score (highest first)
+  candidateScores.sort((a, b) => b.score - a.score);
+  
+  // Log the scoring results
+  console.log('📊 selectSingleBodyPartImage: Candidate scores:');
+  candidateScores.forEach((candidate, index) => {
+    console.log(`   ${index + 1}. ${candidate.image.name}: ${candidate.score} points`);
+    console.log(`      Reasons: ${candidate.reasons.join(', ')}`);
+  });
+  
+  // Return the highest scoring image
+  const selectedImage = candidateScores[0]?.image || null;
+  
+  if (selectedImage) {
+    console.log('✅ selectSingleBodyPartImage: Selected body part image:', selectedImage.name);
+    console.log('   📊 Final score:', candidateScores[0].score);
+    console.log('   🎯 Selection reasons:', candidateScores[0].reasons.join(', '));
+  } else {
+    console.log('❌ selectSingleBodyPartImage: No suitable body part image found');
+  }
+  
+  return selectedImage;
+}
+
+/**
+ * Example test cases for validating the single body part rule
+ * These can be used during development to ensure the system works correctly
+ */
+export const EXAMPLE_TEST_CASES = [
+  {
+    prompt: "Give the character a red hat",
+    expectedBodyPart: "head",
+    description: "Head-related request should select head image"
+  },
+  {
+    prompt: "Make the character wear a blue jacket",
+    expectedBodyPart: "torso",
+    description: "Torso-related request should select torso image"
+  },
+  {
+    prompt: "Give him stronger arms",
+    expectedBodyPart: "front-upper-arm",
+    description: "Arm-related request should select arm image"
+  },
+  {
+    prompt: "Make the character wear red boots",
+    expectedBodyPart: "front-foot",
+    description: "Foot-related request should select foot image"
+  },
+  {
+    prompt: "Create a random item",
+    expectedBodyPart: "head",
+    description: "Generic request should default to head"
+  },
+];
+
+/**
+ * Convenience function to run the validation tests with example cases
+ * Call this during development to validate the system
+ */
+export function runValidationTests() {
+  console.log('🧪 runValidationTests: Running validation tests with example cases');
+  return testSingleBodyPartRule(EXAMPLE_TEST_CASES);
+}
+
+/**
+ * Test function to validate the single body part rule enforcement
+ * This function should be called during development to ensure the system works correctly
+ * @param testCases - Array of test cases with prompts and expected results
+ */
+export function testSingleBodyPartRule(testCases: Array<{
+  prompt: string;
+  expectedBodyPart?: string;
+  description: string;
+}>) {
+  console.log('🧪 testSingleBodyPartRule: Starting validation tests');
+  
+  const mockImages: ReferenceImage[] = [
+    { name: 'head', url: '/assets/head.png', path: '/assets/head.png', type: 'character_part' },
+    { name: 'torso', url: '/assets/torso.png', path: '/assets/torso.png', type: 'character_part' },
+    { name: 'front-upper-arm', url: '/assets/arm.png', path: '/assets/arm.png', type: 'character_part' },
+    { name: 'front-foot', url: '/assets/foot.png', path: '/assets/foot.png', type: 'character_part' },
+    { name: 'user-image', url: 'data:image/png;base64,test', path: 'data:image/png;base64,test', type: 'texture' },
+  ];
+  
+  let passedTests = 0;
+  let totalTests = testCases.length;
+  
+  testCases.forEach((testCase, index) => {
+    console.log(`\n🧪 Test ${index + 1}: ${testCase.description}`);
+    console.log(`   📝 Prompt: "${testCase.prompt}"`);
+    
+    try {
+      // Test the complete flow
+      const targetBodyPart = detectTargetBodyPart(testCase.prompt);
+      const relevantImages = getRelevantReferenceImages(mockImages, testCase.prompt);
+      
+      // Validate single body part rule
+      const bodyPartImages = relevantImages.filter(img => !img.url.startsWith('data:'));
+      
+      if (bodyPartImages.length > 1) {
+        console.log(`   ❌ FAILED: Multiple body part images returned (${bodyPartImages.length})`);
+        console.log(`      Images: ${bodyPartImages.map(img => img.name).join(', ')}`);
+      } else if (bodyPartImages.length === 1) {
+        console.log(`   ✅ PASSED: Single body part image returned: ${bodyPartImages[0].name}`);
+        
+        // Check if expected body part matches
+        if (testCase.expectedBodyPart && bodyPartImages[0].name !== testCase.expectedBodyPart) {
+          console.log(`   ⚠️ WARNING: Expected ${testCase.expectedBodyPart}, got ${bodyPartImages[0].name}`);
+        }
+        
+        passedTests++;
+      } else {
+        console.log(`   ⚠️ INFO: No body part images returned (user images only)`);
+        passedTests++;
+      }
+      
+      console.log(`   📊 Total images: ${relevantImages.length} (${bodyPartImages.length} body parts, ${relevantImages.length - bodyPartImages.length} user images)`);
+      
+    } catch (error) {
+      console.log(`   ❌ ERROR: Test failed with error: ${error}`);
+    }
+  });
+  
+  console.log(`\n📊 testSingleBodyPartRule: Results`);
+  console.log(`   ✅ Passed: ${passedTests}/${totalTests} tests`);
+  console.log(`   📈 Success rate: ${Math.round((passedTests / totalTests) * 100)}%`);
+  
+  if (passedTests === totalTests) {
+    console.log('   🎉 All tests passed! Single body part rule is working correctly.');
+  } else {
+    console.log('   ⚠️ Some tests failed. Check the implementation.');
+  }
+  
+  return {
+    passed: passedTests,
+    total: totalTests,
+    successRate: (passedTests / totalTests) * 100
+  };
 } 

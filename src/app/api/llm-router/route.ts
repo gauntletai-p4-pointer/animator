@@ -407,12 +407,14 @@ Example response format:
 }
 
 /**
- * Filters reference images to include only relevant body part and all user-uploaded images
+ * Filters reference images to include only ONE body part and all user-uploaded images
+ * Uses the new selectSingleBodyPartImage function to enforce single body part rule
  */
-function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPart: string): any[] {
+function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPart: string, userPrompt: string = ''): any[] {
   console.log('🔍 REFERENCE FILTERING: Filtering reference images for generation');
   console.log('📸 REFERENCE FILTERING: Total images available:', referenceImages.length);
   console.log('🎯 REFERENCE FILTERING: Target body part:', targetBodyPart);
+  console.log('📝 REFERENCE FILTERING: User prompt:', userPrompt);
   
   if (!referenceImages || referenceImages.length === 0) {
     console.log('⚠️ REFERENCE FILTERING: No reference images provided');
@@ -429,38 +431,15 @@ function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPa
     userUploadedImages.forEach(img => console.log('   📤 User-uploaded:', img.name));
   }
   
-  // Find the specific body part image that matches the target
-  const bodyPartImage = referenceImages.find(img => {
-    // Skip user-uploaded images
-    if (img.url.startsWith('data:')) return false;
-    
-    const imageName = img.name.toLowerCase();
-    const bodyPartLower = targetBodyPart.toLowerCase();
-    
-    // Direct filename match
-    if (imageName === bodyPartLower) {
-      return true;
-    }
-    
-    // Check if the image name contains the body part
-    if (imageName.includes(bodyPartLower)) {
-      return true;
-    }
-    
-    // Special mappings for common body parts
-    if (bodyPartLower === 'head' && imageName === 'head') return true;
-    if (bodyPartLower === 'torso' && imageName === 'torso') return true;
-    if (bodyPartLower === 'front-upper-arm' && imageName === 'front-upper-arm') return true;
-    if (bodyPartLower === 'front-thigh' && imageName === 'front-thigh') return true;
-    
-    return false;
-  });
+  // CRITICAL: Use the new selectSingleBodyPartImage function to enforce single body part rule
+  const { selectSingleBodyPartImage } = require('../../../utils/loadReferenceImages');
+  const selectedBodyPartImage = selectSingleBodyPartImage(referenceImages, userPrompt, targetBodyPart);
   
-  if (bodyPartImage) {
-    filteredImages.push(bodyPartImage);
-    console.log('✅ REFERENCE FILTERING: Added body part image:', bodyPartImage.name);
+  if (selectedBodyPartImage) {
+    filteredImages.push(selectedBodyPartImage);
+    console.log('✅ REFERENCE FILTERING: Added single body part image:', selectedBodyPartImage.name);
   } else {
-    console.log('⚠️ REFERENCE FILTERING: No matching body part image found for:', targetBodyPart);
+    console.log('⚠️ REFERENCE FILTERING: No body part image selected for:', targetBodyPart);
     console.log('   Available asset images:', referenceImages.filter(img => !img.url.startsWith('data:')).map(img => img.name));
   }
   
@@ -469,6 +448,18 @@ function filterReferenceImagesForGeneration(referenceImages: any[], targetBodyPa
     const imageType = img.url.startsWith('data:') ? 'USER-UPLOADED' : 'BODY-PART';
     console.log(`   📸 ${imageType}: ${img.name}`);
   });
+  
+  // VALIDATION: Ensure only one body part image is included
+  const bodyPartImages = filteredImages.filter(img => !img.url.startsWith('data:'));
+  if (bodyPartImages.length > 1) {
+    console.error('❌ REFERENCE FILTERING: VALIDATION FAILED - Multiple body part images found!');
+    console.error('   Body part images:', bodyPartImages.map(img => img.name));
+    throw new Error('Reference filtering validation failed: Multiple body part images detected');
+  } else if (bodyPartImages.length === 1) {
+    console.log('✅ REFERENCE FILTERING: VALIDATION PASSED - Single body part image confirmed:', bodyPartImages[0].name);
+  } else {
+    console.log('⚠️ REFERENCE FILTERING: VALIDATION PASSED - No body part images (user-uploaded only)');
+  }
   
   return filteredImages;
 }
@@ -572,8 +563,8 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
     const targetBodyPart = detectedBodyParts[0]; // Use the first body part as the target
     console.log('🎯 IMAGE GENERATION: Target body part:', targetBodyPart);
     
-    // Step 2: Filter reference images to include only relevant body part and all user images
-    const filteredReferenceImages = filterReferenceImagesForGeneration(referenceImages || [], targetBodyPart);
+    // Step 2: Filter reference images to include only ONE body part and all user images
+    const filteredReferenceImages = filterReferenceImagesForGeneration(referenceImages || [], targetBodyPart, userPrompt);
     console.log('📸 IMAGE GENERATION: Filtered reference images:', filteredReferenceImages.length);
     
     // Step 3: Rewrite the user prompt for image generation
