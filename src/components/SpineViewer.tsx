@@ -26,7 +26,11 @@ interface SpineAssets {
   texture: string | null;
 }
 
-export default function SpineViewer() {
+interface SpineViewerProps {
+  onSkeletonLoaded?: (skeleton: Skeleton, animationState: AnimationState) => void;
+}
+
+export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [assets, setAssets] = useState<SpineAssets>({
     skeleton: null,
@@ -60,7 +64,7 @@ export default function SpineViewer() {
             texture: '/assets/spineboy/export/spineboy.png'
           });
         }
-      } catch (err) {
+      } catch {
         console.log('Default assets not found, waiting for upload');
       }
     };
@@ -230,6 +234,9 @@ export default function SpineViewer() {
             animationState.setAnimation(0, defaultAnimation.name, true);
           }
 
+          // Notify parent component
+          onSkeletonLoaded?.(skeleton, animationState);
+
           setLoading(false);
 
           // Start render loop
@@ -300,7 +307,7 @@ export default function SpineViewer() {
         contextRef.current.gl.deleteTexture(contextRef.current.gl.getParameter(contextRef.current.gl.TEXTURE_BINDING_2D));
       }
     };
-  }, [assets]);
+  }, [assets, onSkeletonLoaded]);
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
