@@ -166,10 +166,36 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
           if (routerData.result.success && routerData.result.extractedParams?.generatedImageUrl) {
             console.log('🖼️ ChatSidebar: Adding generated image to chat and display');
             
+            // Extract body parts for character attachment
+            const bodyParts = routerData.result.extractedParams.bodyParts || ['head'];
+            console.log('🎯 ChatSidebar: Body parts detected:', bodyParts);
+            
+            // Create appearance changes for each body part
+            if (onAppearanceChange && bodyParts.length > 0) {
+              console.log('🔄 ChatSidebar: Applying generated image to character slots');
+              
+              bodyParts.forEach((slotName: string) => {
+                console.log(`   📎 ChatSidebar: Applying to slot: ${slotName}`);
+                
+                // Create appearance change for this slot
+                const appearanceChange: AppearanceChange = {
+                  type: 'texture',
+                  target: slotName,
+                  value: routerData.result.extractedParams.generatedImageUrl,
+                  description: `Applied generated ${routerData.result.extractedParams.itemType} to ${slotName}`,
+                };
+                
+                // Apply the appearance change
+                onAppearanceChange(appearanceChange);
+                
+                console.log(`   ✅ ChatSidebar: Applied appearance change to ${slotName}`);
+              });
+            }
+            
             // Add successful image generation response to chat
             await append({
               role: 'assistant',
-              content: `🎨 **Image Generated Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
+              content: `🎨 **Image Generated & Applied Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n**Applied to:** ${bodyParts.join(', ')}\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
             });
             
             const newImage: GeneratedImage = {

@@ -2,18 +2,12 @@ import { openai } from '@ai-sdk/openai';
 import { generateText } from 'ai';
 import { z } from 'zod';
 
-// Define the request categories
+// Define the simplified request categories
 const RequestCategory = z.enum([
-  'image_generation',
-  'walk_animation',
-  'run_animation',
-  'idle_animation',
-  'jump_animation',
-  'dance_animation',
-  'other_animation',
-  'export_assets',
-  'appearance_change',
-  'unknown'
+  'image_generation',  // Includes appearance changes, textures, accessories, etc.
+  'animation',         // All animation types (walk, run, jump, dance, etc.)
+  'export_assets',     // Export/download functionality
+  'unknown'            // Unclear or unhandled requests
 ]);
 
 type RequestCategoryType = z.infer<typeof RequestCategory>;
@@ -27,6 +21,182 @@ const RouterResponseSchema = z.object({
 });
 
 type RouterResponse = z.infer<typeof RouterResponseSchema>;
+
+// Body part mapping for Spine2D character slots
+const BODY_PART_MAPPING = {
+  // Head/Face area
+  head: ['head'],
+  face: ['head'],
+  hat: ['head'], // Could also be 'goggles' slot for some accessories
+  helmet: ['head'],
+  hair: ['head'],
+  
+  // Eyes
+  eyes: ['eye'],
+  eye: ['eye'],
+  glasses: ['goggles'],
+  goggles: ['goggles'],
+  sunglasses: ['goggles'],
+  
+  // Mouth
+  mouth: ['mouth'],
+  lips: ['mouth'],
+  teeth: ['mouth'],
+  
+  // Neck
+  neck: ['neck'],
+  collar: ['neck'],
+  
+  // Torso/Body
+  torso: ['torso'],
+  body: ['torso'],
+  chest: ['torso'],
+  shirt: ['torso'],
+  jacket: ['torso'],
+  vest: ['torso'],
+  armor: ['torso'],
+  
+  // Arms
+  arms: ['front-upper-arm', 'rear-upper-arm'],
+  arm: ['front-upper-arm', 'rear-upper-arm'],
+  'left arm': ['front-upper-arm'],
+  'right arm': ['rear-upper-arm'],
+  shoulder: ['front-upper-arm', 'rear-upper-arm'],
+  
+  // Forearms/Bracers
+  forearm: ['front-bracer', 'rear-bracer'],
+  forearms: ['front-bracer', 'rear-bracer'],
+  bracer: ['front-bracer', 'rear-bracer'],
+  bracers: ['front-bracer', 'rear-bracer'],
+  'left forearm': ['front-bracer'],
+  'right forearm': ['rear-bracer'],
+  
+  // Hands/Fists
+  hands: ['front-fist'],
+  hand: ['front-fist'],
+  fist: ['front-fist'],
+  fists: ['front-fist'],
+  gloves: ['front-fist'],
+  glove: ['front-fist'],
+  
+  // Legs - Thighs
+  legs: ['front-thigh', 'rear-thigh'],
+  leg: ['front-thigh', 'rear-thigh'],
+  thigh: ['front-thigh', 'rear-thigh'],
+  thighs: ['front-thigh', 'rear-thigh'],
+  'left leg': ['front-thigh'],
+  'right leg': ['rear-thigh'],
+  
+  // Legs - Shins
+  shin: ['front-shin', 'rear-shin'],
+  shins: ['front-shin', 'rear-shin'],
+  'left shin': ['front-shin'],
+  'right shin': ['rear-shin'],
+  
+  // Feet
+  feet: ['front-foot', 'rear-foot'],
+  foot: ['front-foot', 'rear-foot'],
+  shoes: ['front-foot', 'rear-foot'],
+  shoe: ['front-foot', 'rear-foot'],
+  boots: ['front-foot', 'rear-foot'],
+  boot: ['front-foot', 'rear-foot'],
+  'left foot': ['front-foot'],
+  'right foot': ['rear-foot'],
+  
+  // Weapons/Accessories
+  weapon: ['gun'],
+  gun: ['gun'],
+  sword: ['gun'], // Gun slot can hold other weapons
+  rifle: ['gun'],
+  pistol: ['gun'],
+  
+  // Effects
+  muzzle: ['muzzle'],
+  flash: ['muzzle'],
+  
+  // General accessories that could go on head
+  accessory: ['goggles'], // Default to goggles slot for accessories
+  gear: ['goggles'],
+};
+
+// Function to analyze user prompt and determine body part
+async function mapPromptToBodyPart(prompt: string): Promise<string[]> {
+  console.log(`🔍 BODY PART MAPPING: Analyzing prompt: "${prompt}"`);
+  
+  const lowerPrompt = prompt.toLowerCase();
+  
+  // Direct keyword matching first
+  for (const [bodyPart, slots] of Object.entries(BODY_PART_MAPPING)) {
+    if (lowerPrompt.includes(bodyPart)) {
+      console.log(`✅ BODY PART MAPPING: Found direct match "${bodyPart}" → slots: ${slots.join(', ')}`);
+      return slots;
+    }
+  }
+  
+  // Use LLM to analyze more complex prompts
+  const messages = [
+    {
+      role: 'system' as const,
+      content: `You are analyzing user prompts to determine which body part of a 2D character they are referring to. 
+      
+Available body parts and their slots:
+- head/face: head
+- eyes: eye  
+- glasses/goggles: goggles
+- mouth: mouth
+- neck: neck
+- torso/body/chest/shirt: torso
+- arms: front-upper-arm, rear-upper-arm
+- forearms/bracers: front-bracer, rear-bracer
+- hands/fists/gloves: front-fist
+- legs/thighs: front-thigh, rear-thigh
+- shins: front-shin, rear-shin
+- feet/shoes/boots: front-foot, rear-foot
+- weapon/gun: gun
+- accessories (default): goggles
+
+Respond with ONLY the slot name(s) separated by commas. If multiple slots apply, list them all.
+If unclear, default to "head" for wearable items.
+
+Examples:
+- "make his face green" → head
+- "give him a red hat" → head
+- "change his shirt" → torso
+- "new shoes" → front-foot,rear-foot
+- "gloves" → front-fist
+- "glasses" → goggles`
+    },
+    {
+      role: 'user' as const,
+      content: `Analyze this prompt: "${prompt}"`
+    }
+  ];
+
+  try {
+    const result = await generateText({
+      model: openai('gpt-4o-mini'),
+      messages: [
+        { role: 'system', content: messages[0].content },
+        { role: 'user', content: messages[1].content }
+      ],
+      temperature: 0.1,
+      maxTokens: 50,
+    });
+
+    const resultText = result.text.trim();
+    if (resultText) {
+      const slots = resultText.split(',').map((s: string) => s.trim());
+      console.log(`🤖 BODY PART MAPPING: LLM analysis "${prompt}" → slots: ${slots.join(', ')}`);
+      return slots;
+    }
+  } catch (error) {
+    console.error('❌ BODY PART MAPPING: LLM analysis failed:', error);
+  }
+  
+  // Default fallback
+  console.log(`⚠️  BODY PART MAPPING: No match found, defaulting to head slot`);
+  return ['head'];
+}
 
 /**
  * Rewrites user prompts into simple image generation requests using GPT-4.1-mini
@@ -111,39 +281,23 @@ async function categorizeRequest(userPrompt: string): Promise<RouterResponse> {
 
   const systemPrompt = `You are an expert request categorizer for a Spine2D animation studio application. 
   
-Your job is to analyze user requests and categorize them into one of these categories:
+Your job is to analyze user requests and categorize them into one of these simplified categories:
 
-1. "image_generation" - User wants to generate, create, or modify images/textures
-   Examples: "generate a hat texture", "give him a hat", "red shoes", "create a sword image", "make a background image", "make the character wear a red hat"
+1. "image_generation" - User wants to generate, create, or modify images/textures/appearance
+   Examples: "generate a hat texture", "give him a hat", "red shoes", "create a sword image", "make a background image", "make the character wear a red hat", "make him blue", "change his shirt color", "add glasses", "make his face green"
    Extract: itemType, color, description, style
 
-2. "walk_animation" - User wants to create or modify walking animations
-   Examples: "make him walk", "create a walking animation", "modify the walk cycle", "make him walk faster"
-   Extract: speed, direction, style, intensity
+2. "animation" - User wants to create or modify any type of animation (walk, run, jump, dance, idle, etc.)
+   Examples: "make him walk", "create a walking animation", "make him run faster", "add a jump", "create a dance sequence", "make him stand still", "breathing animation", "make him wave"
+   Extract: animationType, speed, direction, style, intensity
 
-3. "run_animation" - User wants to create or modify running animations
-   Examples: "make him run", "create a running animation", "speed up the run"
-
-4. "idle_animation" - User wants to create or modify idle/standing animations
-   Examples: "make him stand still", "create an idle animation", "breathing animation"
-
-5. "jump_animation" - User wants to create or modify jumping animations
-   Examples: "make him jump", "create a jumping animation", "add a leap"
-
-6. "dance_animation" - User wants to create or modify dancing animations
-   Examples: "make him dance", "create a dance sequence", "add dance moves"
-
-7. "other_animation" - User wants to create other types of animations not listed above
-   Examples: "make him wave", "create a spinning animation", "add a falling animation"
-
-8. "export_assets" - User wants to export or download assets
+3. "export_assets" - User wants to export or download assets
    Examples: "export the animation", "download the character", "save the assets", "export the character assets"
    Extract: format, includeAnimations, includeTextures, exportType
 
-9. "appearance_change" - User wants to change character appearance (skin, colors, attachments)
-   Examples: "make him blue", "change his hat", "switch to zombie skin"
+4. "unknown" - The request doesn't fit any category or is unclear
 
-10. "unknown" - The request doesn't fit any category or is unclear
+IMPORTANT: Appearance changes (colors, clothing, accessories, body parts) should be categorized as "image_generation" since they will generate images to apply to the character.
 
 Respond with ONLY a valid JSON object (no markdown formatting, no code blocks) containing:
 - category: one of the above categories
@@ -154,7 +308,7 @@ Respond with ONLY a valid JSON object (no markdown formatting, no code blocks) c
 Be very specific and choose the most appropriate category. If unsure, use "unknown".
 
 Example response format:
-{"category": "walk_animation", "confidence": 0.9, "reasoning": "User wants to modify walking animation speed", "extractedParams": {"speed": "faster"}}`;
+{"category": "image_generation", "confidence": 0.9, "reasoning": "User wants to change character appearance by making shirt green", "extractedParams": {"itemType": "shirt", "color": "green"}}`;
 
   try {
     console.log('🤖 LLM Router: Sending request to GPT-4.1-mini');
@@ -196,20 +350,15 @@ Example response format:
       let fallbackCategory: RequestCategoryType = 'unknown';
       const text = result.text.toLowerCase();
       
-      if (text.includes('image') || text.includes('generate') || text.includes('texture')) {
+      if (text.includes('image') || text.includes('generate') || text.includes('texture') || 
+          text.includes('color') || text.includes('skin') || text.includes('appearance') ||
+          text.includes('hat') || text.includes('shirt') || text.includes('shoes')) {
         fallbackCategory = 'image_generation';
-      } else if (text.includes('walk')) {
-        fallbackCategory = 'walk_animation';
-      } else if (text.includes('run')) {
-        fallbackCategory = 'run_animation';
-      } else if (text.includes('jump')) {
-        fallbackCategory = 'jump_animation';
-      } else if (text.includes('dance')) {
-        fallbackCategory = 'dance_animation';
+      } else if (text.includes('walk') || text.includes('run') || text.includes('jump') || 
+                text.includes('dance') || text.includes('animation')) {
+        fallbackCategory = 'animation';
       } else if (text.includes('export') || text.includes('download')) {
         fallbackCategory = 'export_assets';
-      } else if (text.includes('color') || text.includes('skin') || text.includes('appearance')) {
-        fallbackCategory = 'appearance_change';
       }
       
       console.log('🔄 LLM Router: Using fallback category:', fallbackCategory);
@@ -353,6 +502,9 @@ Original user request: ${userPrompt}`;
     
     console.log('📝 IMAGE GENERATION: Revised prompt:', revisedPrompt);
     
+    // Step 3: Map the original prompt to body parts
+    const bodyParts = await mapPromptToBodyPart(userPrompt);
+    
     return {
       success: true,
       message: `Image generated successfully for: ${itemType} (${color})`,
@@ -372,6 +524,7 @@ Original user request: ${userPrompt}`;
         format: 'PNG',
         model: 'gpt-image-1',
         timestamp: new Date().toISOString(),
+        bodyParts: bodyParts,
       },
     };
     
@@ -409,153 +562,118 @@ Original user request: ${userPrompt}`;
 }
 
 /**
- * Stubbed function for walk animation requests
- * Example: "Make him walk faster"
+ * Consolidated handler for all animation requests
+ * Handles walk, run, jump, dance, idle, and other animation types
  */
-async function handleWalkAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🚶 WALK ANIMATION: Function reached successfully!');
+async function handleAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
+  console.log('🎬 ANIMATION: Function reached successfully!');
   console.log('📝 User prompt:', userPrompt);
   console.log('📋 Extracted params:', extractedParams);
   console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
+  
+  // Determine animation type from prompt
+  const prompt = userPrompt.toLowerCase();
+  let animationType = 'other';
+  let emoji = '🎭';
+  
+  if (prompt.includes('walk')) {
+    animationType = 'walk';
+    emoji = '🚶';
+  } else if (prompt.includes('run')) {
+    animationType = 'run';
+    emoji = '🏃';
+  } else if (prompt.includes('jump')) {
+    animationType = 'jump';
+    emoji = '🦘';
+  } else if (prompt.includes('dance')) {
+    animationType = 'dance';
+    emoji = '💃';
+  } else if (prompt.includes('idle') || prompt.includes('stand')) {
+    animationType = 'idle';
+    emoji = '🧍';
+  }
+  
+  console.log(`${emoji} ANIMATION: Detected animation type: ${animationType}`);
   
   // Extract animation parameters
   const speed = extractedParams?.speed || 'normal';
   const direction = extractedParams?.direction || 'forward';
   const style = extractedParams?.style || 'default';
+  const intensity = extractedParams?.intensity || 'medium';
   
-  console.log('🎮 WALK ANIMATION: Analyzing animation parameters');
+  console.log('🎮 ANIMATION: Analyzing animation parameters');
   console.log('   ⚡ Speed:', speed);
   console.log('   🧭 Direction:', direction);
   console.log('   🎭 Style:', style);
+  console.log('   💪 Intensity:', intensity);
   
-  // Simulate parameter modification process
-  console.log('⚙️ WALK ANIMATION: Modifying animation parameters...');
+  // Simulate animation modification process
+  console.log('⚙️ ANIMATION: Modifying animation parameters...');
   console.log('   📊 Calculating new keyframe timings');
   console.log('   🦴 Adjusting bone rotation speeds');
   console.log('   📈 Updating animation curve interpolation');
-  console.log('   🔄 Applying changes to existing walk cycle');
+  console.log(`   🔄 Applying changes to ${animationType} animation`);
   
-  // Calculate new animation properties based on speed
-  let newDuration = 1.0; // default walk cycle duration
+  // Calculate animation properties based on type and speed
+  let newDuration = 1.0;
   let speedMultiplier = 1.0;
+  let affectedBones = ['front-thigh', 'front-shin', 'rear-thigh', 'rear-shin'];
+  
+  switch (animationType) {
+    case 'walk':
+      newDuration = 1.0;
+      affectedBones = ['front-thigh', 'front-shin', 'rear-thigh', 'rear-shin', 'torso'];
+      break;
+    case 'run':
+      newDuration = 0.6;
+      affectedBones = ['front-thigh', 'front-shin', 'rear-thigh', 'rear-shin', 'torso', 'front-upper-arm', 'rear-upper-arm'];
+      break;
+    case 'jump':
+      newDuration = 1.2;
+      affectedBones = ['front-thigh', 'rear-thigh', 'torso', 'front-upper-arm', 'rear-upper-arm'];
+      break;
+    case 'dance':
+      newDuration = 2.0;
+      affectedBones = ['torso', 'front-upper-arm', 'rear-upper-arm', 'head', 'front-thigh', 'rear-thigh'];
+      break;
+    case 'idle':
+      newDuration = 3.0;
+      affectedBones = ['torso', 'head'];
+      break;
+  }
   
   if (speed === 'faster' || speed === 'fast') {
-    newDuration = 0.7;
+    newDuration *= 0.7;
     speedMultiplier = 1.5;
   } else if (speed === 'slower' || speed === 'slow') {
-    newDuration = 1.5;
+    newDuration *= 1.5;
     speedMultiplier = 0.7;
   }
   
   console.log('   ⏱️ New animation duration:', newDuration);
   console.log('   🚀 Speed multiplier:', speedMultiplier);
+  console.log('   🦴 Affected bones:', affectedBones.join(', '));
   
   return {
     success: true,
-    message: `Walk animation parameters modified: ${speed} speed`,
-    category: 'walk_animation',
+    message: `${animationType.charAt(0).toUpperCase() + animationType.slice(1)} animation parameters modified: ${speed} speed`,
+    category: 'animation',
     userPrompt,
     extractedParams: {
+      animationType,
       speed,
       direction,
       style,
+      intensity,
       newDuration,
       speedMultiplier,
-      modifiedTimelines: ['front-thigh', 'front-shin', 'rear-thigh', 'rear-shin'],
-      animationName: 'walk_modified',
+      affectedBones,
+      animationName: `${animationType}_modified`,
     },
   };
 }
 
-/**
- * Stubbed function for run animation requests
- */
-async function handleRunAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🏃 RUN ANIMATION: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Run animation request received',
-    category: 'run_animation',
-    userPrompt,
-    extractedParams,
-  };
-}
 
-/**
- * Stubbed function for idle animation requests
- */
-async function handleIdleAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🧍 IDLE ANIMATION: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Idle animation request received',
-    category: 'idle_animation',
-    userPrompt,
-    extractedParams,
-  };
-}
-
-/**
- * Stubbed function for jump animation requests
- */
-async function handleJumpAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🦘 JUMP ANIMATION: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Jump animation request received',
-    category: 'jump_animation',
-    userPrompt,
-    extractedParams,
-  };
-}
-
-/**
- * Stubbed function for dance animation requests
- */
-async function handleDanceAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('💃 DANCE ANIMATION: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Dance animation request received',
-    category: 'dance_animation',
-    userPrompt,
-    extractedParams,
-  };
-}
-
-/**
- * Stubbed function for other animation requests
- */
-async function handleOtherAnimation(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🎭 OTHER ANIMATION: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Other animation request received',
-    category: 'other_animation',
-    userPrompt,
-    extractedParams,
-  };
-}
 
 /**
  * Stubbed function for export assets requests
@@ -624,24 +742,7 @@ async function handleExportAssets(userPrompt: string, extractedParams?: Record<s
   };
 }
 
-/**
- * Stubbed function for appearance change requests (fallback to original system)
- */
-async function handleAppearanceChange(userPrompt: string, extractedParams?: Record<string, any>, referenceImages?: any[]) {
-  console.log('🎨 APPEARANCE CHANGE: Function reached successfully!');
-  console.log('📝 User prompt:', userPrompt);
-  console.log('📋 Extracted params:', extractedParams);
-  console.log('🖼️ Reference images:', referenceImages ? referenceImages.length : 0);
-  
-  return {
-    success: true,
-    message: 'Appearance change request - routing to original system',
-    category: 'appearance_change',
-    userPrompt,
-    extractedParams,
-    useOriginalSystem: true,
-  };
-}
+
 
 /**
  * Routes the categorized request to the appropriate handler
@@ -657,30 +758,13 @@ async function routeRequest(category: RequestCategoryType, userPrompt: string, e
     case 'image_generation':
       return await handleImageGeneration(userPrompt, extractedParams, referenceImages);
     
-    case 'walk_animation':
-      return await handleWalkAnimation(userPrompt, extractedParams, referenceImages);
-    
-    case 'run_animation':
-      return await handleRunAnimation(userPrompt, extractedParams, referenceImages);
-    
-    case 'idle_animation':
-      return await handleIdleAnimation(userPrompt, extractedParams, referenceImages);
-    
-    case 'jump_animation':
-      return await handleJumpAnimation(userPrompt, extractedParams, referenceImages);
-    
-    case 'dance_animation':
-      return await handleDanceAnimation(userPrompt, extractedParams, referenceImages);
-    
-    case 'other_animation':
-      return await handleOtherAnimation(userPrompt, extractedParams, referenceImages);
+    case 'animation':
+      return await handleAnimation(userPrompt, extractedParams, referenceImages);
     
     case 'export_assets':
       return await handleExportAssets(userPrompt, extractedParams, referenceImages);
     
-    case 'appearance_change':
-      return await handleAppearanceChange(userPrompt, extractedParams, referenceImages);
-    
+    case 'unknown':
     default:
       console.log('❓ LLM Router: Unknown category, using fallback');
       return {
