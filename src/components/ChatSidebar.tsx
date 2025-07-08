@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useChat } from '@ai-sdk/react';
 import GeneratedImageDisplay from './GeneratedImageDisplay';
 import { loadReferenceImages, getRelevantReferenceImages, ReferenceImage } from '@/utils/loadReferenceImages';
+import { makeTransparent } from '@/utils/backgroundRemoval';
 
 interface ColorValue {
   r: number;
@@ -51,6 +52,7 @@ interface GeneratedImage {
   itemType?: string;
   color?: string;
   timestamp: string;
+  hasTransparency?: boolean;
 }
 
 export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: ChatSidebarProps) {
@@ -170,6 +172,27 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
             const bodyParts = routerData.result.extractedParams.bodyParts || ['head'];
             console.log('🎯 ChatSidebar: Body parts detected:', bodyParts);
             
+            // Process the generated image to remove background
+            try {
+              console.log('🎭 ChatSidebar: Starting background removal process for generated image');
+              
+              const transparentImageUrl = await makeTransparent(routerData.result.extractedParams.generatedImageUrl, {
+                tolerance: 35, // Slightly higher tolerance for AI-generated images
+                edgeDetection: true
+              });
+              
+              console.log('✅ ChatSidebar: Background removal completed successfully');
+              
+              // Update the extracted params with the processed image
+              routerData.result.extractedParams.generatedImageUrl = transparentImageUrl;
+              routerData.result.extractedParams.hasTransparency = true;
+              
+            } catch (error) {
+              console.error('❌ ChatSidebar: Background removal failed, using original image:', error);
+              // Continue with original image if background removal fails
+              routerData.result.extractedParams.hasTransparency = false;
+            }
+            
             // Create appearance changes for each body part
             if (onAppearanceChange && bodyParts.length > 0) {
               console.log('🔄 ChatSidebar: Applying generated image to character slots');
@@ -207,6 +230,7 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
               itemType: routerData.result.extractedParams.itemType,
               color: routerData.result.extractedParams.color,
               timestamp: routerData.result.extractedParams.timestamp,
+              hasTransparency: routerData.result.extractedParams.hasTransparency,
             };
             
             setGeneratedImages(prev => [...prev, newImage]);
@@ -391,6 +415,7 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
                   rewrittenPrompt={image.rewrittenPrompt}
                   itemType={image.itemType}
                   color={image.color}
+                  hasTransparency={image.hasTransparency}
                   onClose={() => removeGeneratedImage(image.id)}
                 />
               ))}

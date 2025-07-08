@@ -417,12 +417,15 @@ async function handleImageGeneration(userPrompt: string, extractedParams?: Recor
 
 The image should be a 2D character sprite asset with these specifications:
 - Clean and simple design suitable for game sprites
-- Transparent background (PNG format)
-- High contrast and clear details
-- Appropriate size for character accessories
-- Style: cartoon/anime game art
+- SOLID WHITE BACKGROUND (will be made transparent in post-processing)
+- High contrast and clear details with sharp edges
+- Appropriate size for character accessories/equipment
+- Style: cartoon/anime game art with clean lines
 - Color: ${color}
 - Item type: ${itemType}
+- The object should be centered in the image with clear separation from background
+- Avoid gradients or soft shadows that blend with the background
+- Use bold, defined outlines around the object
 
 Please generate an image that matches the art style and proportions of the reference character parts provided.
 

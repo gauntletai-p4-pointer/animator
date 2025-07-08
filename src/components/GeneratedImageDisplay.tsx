@@ -9,6 +9,7 @@ interface GeneratedImageDisplayProps {
   rewrittenPrompt?: string;
   itemType?: string;
   color?: string;
+  hasTransparency?: boolean;
   onClose?: () => void;
 }
 
@@ -23,6 +24,7 @@ export default function GeneratedImageDisplay({
   rewrittenPrompt,
   itemType, 
   color,
+  hasTransparency,
   onClose 
 }: GeneratedImageDisplayProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -138,6 +140,20 @@ export default function GeneratedImageDisplay({
         </div>
       )}
 
+      {/* Transparency Status */}
+      {hasTransparency && (
+        <div 
+          className="mt-3 p-2 rounded text-xs text-center"
+          style={{ 
+            backgroundColor: 'var(--success-bg, #22c55e)', 
+            color: 'var(--success-text, #ffffff)',
+            opacity: 0.9 
+          }}
+        >
+          🎭 Background removed - Ready for character application!
+        </div>
+      )}
+      
       {/* Generation Notice */}
       <div 
         className="mt-3 p-2 rounded text-xs text-center"
@@ -147,7 +163,7 @@ export default function GeneratedImageDisplay({
           opacity: 0.8 
         }}
       >
-        Generated with GPT-image-1. Integration with Spine2D coming soon!
+        Generated with GPT-image-1 {hasTransparency ? '+ Background Removal' : ''}
       </div>
     </div>
   );
