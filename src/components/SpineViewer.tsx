@@ -35,6 +35,8 @@ export default function SpineViewer() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableAnimations, setAvailableAnimations] = useState<string[]>([]);
+  const [selectedAnimation, setSelectedAnimation] = useState<string>('');
   const animationRef = useRef<number | null>(null);
   const contextRef = useRef<ManagedWebGLRenderingContext | null>(null);
   const rendererRef = useRef<SceneRenderer | null>(null);
@@ -77,6 +79,14 @@ export default function SpineViewer() {
     } else {
       const text = await file.text();
       setAssets(prev => ({ ...prev, [type]: text }));
+    }
+  };
+
+  // Animation change handler
+  const handleAnimationChange = (animationName: string) => {
+    setSelectedAnimation(animationName);
+    if (animationStateRef.current && skeletonRef.current) {
+      animationStateRef.current.setAnimation(0, animationName, true);
     }
   };
 
@@ -196,27 +206,28 @@ export default function SpineViewer() {
           const animationState = new AnimationState(animationStateData);
           animationStateRef.current = animationState;
 
-          // Check if walk animation exists, otherwise create it
-          console.log('Available animations:', skeletonData.animations.map(a => a.name));
-          let walkAnimation = skeletonData.findAnimation("walk");
-          if (!walkAnimation) {
-            walkAnimation = skeletonData.findAnimation("run");
-          }
-          if (!walkAnimation && skeletonData.animations.length > 0) {
-            // Use the first available animation
-            walkAnimation = skeletonData.animations[0];
-            console.log('Using animation:', walkAnimation.name);
-          }
-          if (!walkAnimation) {
+          // Get available animations
+          const animations = skeletonData.animations.map(a => a.name);
+          console.log('Available animations:', animations);
+          setAvailableAnimations(animations);
+          
+          // Select default animation
+          let defaultAnimation = skeletonData.findAnimation("walk") || 
+                                skeletonData.findAnimation("run") || 
+                                skeletonData.animations[0];
+          
+          if (!defaultAnimation && animations.length === 0) {
             // Create programmatic walking animation
             console.log('Creating programmatic walk animation');
-            walkAnimation = createWalkingAnimation(skeleton);
-            skeletonData.animations.push(walkAnimation);
+            defaultAnimation = createWalkingAnimation(skeleton);
+            skeletonData.animations.push(defaultAnimation);
+            setAvailableAnimations([defaultAnimation.name]);
           }
 
           // Start animation
-          if (walkAnimation) {
-            animationState.setAnimation(0, walkAnimation.name, true);
+          if (defaultAnimation) {
+            setSelectedAnimation(defaultAnimation.name);
+            animationState.setAnimation(0, defaultAnimation.name, true);
           }
 
           setLoading(false);
@@ -336,6 +347,31 @@ export default function SpineViewer() {
           />
         </div>
       </div>
+
+      {/* Animation selector */}
+      {availableAnimations.length > 0 && (
+        <div className="mb-6">
+          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+            Animation
+          </label>
+          <select
+            value={selectedAnimation}
+            onChange={(e) => handleAnimationChange(e.target.value)}
+            className="px-3 py-2 text-sm border rounded-md transition-colors w-full md:w-auto"
+            style={{
+              backgroundColor: 'var(--select-bg)',
+              borderColor: 'var(--select-border)',
+              color: 'var(--foreground)'
+            }}
+          >
+            {availableAnimations.map(anim => (
+              <option key={anim} value={anim}>
+                {anim.charAt(0).toUpperCase() + anim.slice(1)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Canvas */}
       <div className="relative bg-gray-900 rounded-lg overflow-hidden">
