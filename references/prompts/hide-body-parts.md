@@ -1,0 +1,1 @@
+Consider `references/spine-api` and the formats in  @public/assets/spineboy/export/. We want to give the user a UI option to disable/hide each body part across all of the animations.

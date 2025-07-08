@@ -19,6 +19,7 @@ import {
   ResizeMode,
   GLTexture
 } from '@esotericsoftware/spine-webgl';
+import BodyPartPopover from './BodyPartPopover';
 
 interface SpineAssets {
   skeleton: string | null;
@@ -41,6 +42,7 @@ export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
   const [error, setError] = useState<string | null>(null);
   const [availableAnimations, setAvailableAnimations] = useState<string[]>([]);
   const [selectedAnimation, setSelectedAnimation] = useState<string>('');
+  const [loadedSkeleton, setLoadedSkeleton] = useState<Skeleton | null>(null);
   const animationRef = useRef<number | null>(null);
   const contextRef = useRef<ManagedWebGLRenderingContext | null>(null);
   const rendererRef = useRef<SceneRenderer | null>(null);
@@ -215,6 +217,9 @@ export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
           console.log('Available animations:', animations);
           setAvailableAnimations(animations);
           
+          // Set loaded skeleton for body part controls
+          setLoadedSkeleton(skeleton);
+          
           // Select default animation
           let defaultAnimation = skeletonData.findAnimation("walk") || 
                                 skeletonData.findAnimation("run") || 
@@ -312,97 +317,104 @@ export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
       <h2 className="text-2xl font-bold mb-4" style={{ color: 'var(--foreground)' }}>Spine2D Walking Animation Preview</h2>
-      
-      {/* File upload controls */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div>
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-            Skeleton JSON {assets.skeleton && '✓'}
-          </label>
-          <input
-            type="file"
-            accept=".json"
-            onChange={handleFileUpload('skeleton')}
-            className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
-            style={{ color: 'var(--foreground)' }}
-          />
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-            Atlas File {assets.atlas && '✓'}
-          </label>
-          <input
-            type="file"
-            accept=".atlas"
-            onChange={handleFileUpload('atlas')}
-            className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
-            style={{ color: 'var(--foreground)' }}
-          />
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-            Texture PNG {assets.texture && '✓'}
-          </label>
-          <input
-            type="file"
-            accept=".png"
-            onChange={handleFileUpload('texture')}
-            className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
-            style={{ color: 'var(--foreground)' }}
-          />
-        </div>
-      </div>
+          {/* File upload controls */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                Skeleton JSON {assets.skeleton && '✓'}
+              </label>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload('skeleton')}
+                className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
+                style={{ color: 'var(--foreground)' }}
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                Atlas File {assets.atlas && '✓'}
+              </label>
+              <input
+                type="file"
+                accept=".atlas"
+                onChange={handleFileUpload('atlas')}
+                className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
+                style={{ color: 'var(--foreground)' }}
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                Texture PNG {assets.texture && '✓'}
+              </label>
+              <input
+                type="file"
+                accept=".png"
+                onChange={handleFileUpload('texture')}
+                className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold"
+                style={{ color: 'var(--foreground)' }}
+              />
+            </div>
+          </div>
 
-      {/* Animation selector */}
-      {availableAnimations.length > 0 && (
-        <div className="mb-6">
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-            Animation
-          </label>
-          <select
-            value={selectedAnimation}
-            onChange={(e) => handleAnimationChange(e.target.value)}
-            className="px-3 py-2 text-sm border rounded-md transition-colors w-full md:w-auto"
-            style={{
-              backgroundColor: 'var(--select-bg)',
-              borderColor: 'var(--select-border)',
-              color: 'var(--foreground)'
-            }}
-          >
-            {availableAnimations.map(anim => (
-              <option key={anim} value={anim}>
-                {anim.charAt(0).toUpperCase() + anim.slice(1)}
-              </option>
-            ))}
-          </select>
+      {/* Animation controls toolbar */}
+      {(availableAnimations.length > 0 || loadedSkeleton) && (
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          {availableAnimations.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                Animation:
+              </label>
+              <select
+                value={selectedAnimation}
+                onChange={(e) => handleAnimationChange(e.target.value)}
+                className="px-3 py-2 text-sm border rounded-md transition-colors"
+                style={{
+                  backgroundColor: 'var(--select-bg)',
+                  borderColor: 'var(--select-border)',
+                  color: 'var(--foreground)'
+                }}
+              >
+                {availableAnimations.map(anim => (
+                  <option key={anim} value={anim}>
+                    {anim.charAt(0).toUpperCase() + anim.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          
+          {loadedSkeleton && (
+            <BodyPartPopover skeleton={loadedSkeleton} />
+          )}
         </div>
       )}
 
       {/* Canvas */}
       <div className="relative bg-gray-900 rounded-lg overflow-hidden">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
-            <div className="text-white">Loading...</div>
-          </div>
-        )}
-        
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-red-900 bg-opacity-50">
-            <div className="text-white text-center p-4">
-              <p>Error: {error}</p>
-              <p className="text-sm mt-2">Please upload all required files</p>
-            </div>
-          </div>
-        )}
-        
-        <canvas
-          ref={canvasRef}
-          width={800}
-          height={600}
-          className="w-full h-auto"
-        />
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                <div className="text-white">Loading...</div>
+              </div>
+            )}
+            
+            {error && (
+              <div className="absolute inset-0 flex items-center justify-center bg-red-900 bg-opacity-50">
+                <div className="text-white text-center p-4">
+                  <p>Error: {error}</p>
+                  <p className="text-sm mt-2">Please upload all required files</p>
+                </div>
+              </div>
+            )}
+            
+            <canvas
+              ref={canvasRef}
+              width={800}
+              height={600}
+              className="w-full h-auto"
+            />
       </div>
       
       <div className="mt-4 text-sm" style={{ color: 'var(--foreground)', opacity: 0.7 }}>
