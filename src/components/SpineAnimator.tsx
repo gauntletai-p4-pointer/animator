@@ -51,6 +51,7 @@ interface AnimationData {
 export default function SpineAnimator() {
   const skeletonRef = useRef<Skeleton | null>(null);
   const animationStateRef = useRef<AnimationState | null>(null);
+  const createDynamicAttachmentRef = useRef<((slotName: string, imageUrl: string) => Promise<void>) | null>(null);
   const [animationsUpdated, setAnimationsUpdated] = useState(0);
 
   const handleSkeletonLoaded = (skeleton: Skeleton, animationState: AnimationState) => {
@@ -63,6 +64,11 @@ export default function SpineAnimator() {
       console.log('🎨 SKELETON LOADED: Current skin:', skeleton.skin.name);
       console.log('📎 SKELETON LOADED: Available attachments:', skeleton.skin.attachments ? Object.keys(skeleton.skin.attachments) : 'None');
     }
+  };
+
+  const handleDynamicAttachmentCreator = (createAttachment: (slotName: string, imageUrl: string) => Promise<void>) => {
+    createDynamicAttachmentRef.current = createAttachment;
+    console.log('🔧 DYNAMIC ATTACHMENT CREATOR: Function received and stored');
   };
 
   const handleAppearanceChange = (change: AppearanceChange) => {
@@ -140,33 +146,30 @@ export default function SpineAnimator() {
             console.log(`🖼️ TEXTURE CHANGE: Attempting to apply texture to slot "${change.target}"`);
             console.log(`   🔗 Image URL: ${change.value}`);
             
-            // For now, we'll log the texture change since actual texture replacement
-            // requires more complex WebGL texture management
-            console.log(`✅ TEXTURE CHANGE: Would apply texture "${change.value}" to slot "${change.target}"`);
-            console.log('   📝 Note: Full texture replacement requires WebGL texture management');
-            
-            // Future implementation would:
-            // 1. Load the image from the URL
-            // 2. Create a new GLTexture from the image
-            // 3. Update the atlas or create a new attachment
-            // 4. Apply the new attachment to the slot
-            
-            // For demonstration, we'll show that the system recognized the request
-            const slot = skeleton.findSlot(change.target);
-            if (slot) {
-              console.log(`   🎯 Target slot found: ${change.target}`);
-              console.log(`   📋 Current attachment: ${slot.attachment ? slot.attachment.name : 'None'}`);
-              
-              // Set a visual indication that texture change was received
-              // This could be enhanced to actually load and apply the texture
-              slot.color.r = 0.8; // Slightly tint to show change was processed
-              slot.color.g = 1.0;
-              slot.color.b = 0.8;
-              
-              console.log(`   ✅ Applied visual indication of texture change to slot "${change.target}"`);
-            } else {
-              console.warn(`   ⚠️ Slot "${change.target}" not found for texture change`);
+            // Check if we have the dynamic attachment creator function
+            if (!createDynamicAttachmentRef.current) {
+              console.error('❌ TEXTURE CHANGE: Dynamic attachment creator function not available');
+              console.error('   📝 This should be provided by SpineViewer after skeleton loads');
+              return;
             }
+            
+            // Use the dynamic attachment creator to apply the texture
+            createDynamicAttachmentRef.current(change.target, change.value)
+              .then(() => {
+                console.log(`✅ TEXTURE CHANGE: Successfully applied texture to slot "${change.target}"`);
+              })
+              .catch((error) => {
+                console.error(`❌ TEXTURE CHANGE: Failed to apply texture:`, error);
+                
+                // Fallback: Apply color tint to show something happened
+                const slot = skeleton.findSlot(change.target);
+                if (slot) {
+                  slot.color.r = 0.8;
+                  slot.color.g = 1.0;
+                  slot.color.b = 0.8;
+                  console.log(`   🔄 Applied color tint as fallback for slot "${change.target}"`);
+                }
+              });
           }
         } catch (e) {
           console.error('❌ TEXTURE CHANGE: Failed to apply texture:', e);
@@ -303,7 +306,8 @@ export default function SpineAnimator() {
       <div className="flex-1 overflow-auto">
         <SpineViewer 
           key={animationsUpdated}
-          onSkeletonLoaded={handleSkeletonLoaded} 
+          onSkeletonLoaded={handleSkeletonLoaded}
+          onDynamicAttachmentCreator={handleDynamicAttachmentCreator}
         />
       </div>
       <ChatSidebar 

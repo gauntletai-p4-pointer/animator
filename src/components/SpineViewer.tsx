@@ -17,7 +17,9 @@ import {
   Timeline,
   Physics,
   ResizeMode,
-  GLTexture
+  GLTexture,
+  TextureRegion,
+  RegionAttachment
 } from '@esotericsoftware/spine-webgl';
 
 interface SpineAssets {
@@ -28,9 +30,10 @@ interface SpineAssets {
 
 interface SpineViewerProps {
   onSkeletonLoaded?: (skeleton: Skeleton, animationState: AnimationState) => void;
+  onDynamicAttachmentCreator?: (createAttachment: (slotName: string, imageUrl: string) => Promise<void>) => void;
 }
 
-export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
+export default function SpineViewer({ onSkeletonLoaded, onDynamicAttachmentCreator }: SpineViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [assets, setAssets] = useState<SpineAssets>({
     skeleton: null,
@@ -200,10 +203,25 @@ export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
           const skeleton = new Skeleton(skeletonData);
           skeletonRef.current = skeleton;
 
+          // Set the default skin
+          if (skeletonData.defaultSkin) {
+            console.log('🎨 Setting default skin:', skeletonData.defaultSkin.name);
+            skeleton.setSkin(skeletonData.defaultSkin);
+          } else if (skeletonData.skins.length > 0) {
+            console.log('🎨 Setting first available skin:', skeletonData.skins[0].name);
+            skeleton.setSkin(skeletonData.skins[0]);
+          } else {
+            console.warn('⚠️ No skins available in skeleton data');
+          }
+
           // Set to setup pose
           skeleton.setToSetupPose();
+          skeleton.setSlotsToSetupPose();
           skeleton.update(0);
           skeleton.updateWorldTransform(Physics.reset);
+          
+          // Verify skin is set
+          console.log('🔍 Skeleton skin after setup:', skeleton.skin ? skeleton.skin.name : 'None');
 
           // Create animation state
           const animationStateData = new AnimationStateData(skeletonData);
@@ -234,8 +252,185 @@ export default function SpineViewer({ onSkeletonLoaded }: SpineViewerProps) {
             animationState.setAnimation(0, defaultAnimation.name, true);
           }
 
+          // Create dynamic attachment function
+          const createDynamicAttachment = async (slotName: string, imageUrl: string): Promise<void> => {
+            console.log(`🔄 DYNAMIC ATTACHMENT: Creating attachment for slot "${slotName}" with image: ${imageUrl}`);
+            
+            try {
+              // Find the slot
+              const slot = skeleton.findSlot(slotName);
+              if (!slot) {
+                console.error(`❌ DYNAMIC ATTACHMENT: Slot "${slotName}" not found`);
+                console.log(`🔍 Available slots:`, skeleton.slots.map(s => s.data.name));
+                return;
+              }
+              
+              console.log(`🔍 DYNAMIC ATTACHMENT: Found slot "${slotName}" at index ${slot.data.index}`);
+              console.log(`🔍 DYNAMIC ATTACHMENT: Current attachment:`, slot.attachment ? slot.attachment.name : 'None');
+              
+              // Load the image
+              const img = new Image();
+              img.crossOrigin = "anonymous";
+              
+              await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = () => reject(new Error(`Failed to load image: ${imageUrl}`));
+                img.src = imageUrl;
+              });
+              
+              console.log(`✅ DYNAMIC ATTACHMENT: Image loaded successfully (${img.width}x${img.height})`);
+              
+              // Create WebGL texture
+              const texture = context.gl.createTexture();
+              if (!texture) {
+                throw new Error('Failed to create WebGL texture');
+              }
+              
+              context.gl.bindTexture(context.gl.TEXTURE_2D, texture);
+              context.gl.texImage2D(context.gl.TEXTURE_2D, 0, context.gl.RGBA, context.gl.RGBA, context.gl.UNSIGNED_BYTE, img);
+              context.gl.texParameteri(context.gl.TEXTURE_2D, context.gl.TEXTURE_MIN_FILTER, context.gl.LINEAR);
+              context.gl.texParameteri(context.gl.TEXTURE_2D, context.gl.TEXTURE_MAG_FILTER, context.gl.LINEAR);
+              context.gl.texParameteri(context.gl.TEXTURE_2D, context.gl.TEXTURE_WRAP_S, context.gl.CLAMP_TO_EDGE);
+              context.gl.texParameteri(context.gl.TEXTURE_2D, context.gl.TEXTURE_WRAP_T, context.gl.CLAMP_TO_EDGE);
+              
+              // Create GLTexture wrapper for Spine
+              const glTexture = new GLTexture(context, img, false);
+              
+              // Get original attachment properties for reference
+              const originalAttachment = slot.attachment;
+              let baseWidth = 100; // Default width
+              let baseHeight = 100; // Default height
+              let offsetX = 0;
+              let offsetY = 0;
+              let scaleX = 1;
+              let scaleY = 1;
+              let rotation = 0;
+              
+              if (originalAttachment && originalAttachment.constructor.name === 'RegionAttachment') {
+                const regionAttachment = originalAttachment as RegionAttachment;
+                console.log(`🔍 DYNAMIC ATTACHMENT: Using original attachment properties:`, {
+                  width: regionAttachment.width,
+                  height: regionAttachment.height,
+                  x: regionAttachment.x,
+                  y: regionAttachment.y,
+                  scaleX: regionAttachment.scaleX,
+                  scaleY: regionAttachment.scaleY,
+                  rotation: regionAttachment.rotation
+                });
+                
+                baseWidth = regionAttachment.width;
+                baseHeight = regionAttachment.height;
+                offsetX = regionAttachment.x;
+                offsetY = regionAttachment.y;
+                scaleX = regionAttachment.scaleX;
+                scaleY = regionAttachment.scaleY;
+                rotation = regionAttachment.rotation;
+              } else {
+                console.log(`🔍 DYNAMIC ATTACHMENT: No original attachment found, using defaults`);
+                // Default size based on typical character proportions
+                baseWidth = 98; // Typical torso width
+                baseHeight = 180; // Typical torso height
+              }
+              
+              // Create texture region with proper dimensions
+              const region = new TextureRegion();
+              region.texture = glTexture;
+
+              // 🆕 Ensure renderer can access the texture via renderObject.page.texture
+              // SceneRenderer expects region.renderObject.page.texture
+              (region as any).renderObject = { page: { texture: glTexture } };
+              
+              // The region dimensions should match what we'll use for the attachment
+              region.width = baseWidth;
+              region.height = baseHeight;
+              
+              // Set original dimensions so updateRegion calculates vertices correctly
+              (region as any).originalWidth = baseWidth;
+              (region as any).originalHeight = baseHeight;
+              (region as any).offsetX = 0;
+              (region as any).offsetY = 0;
+              (region as any).rotate = false;
+              (region as any).degrees = 0;
+              
+              // UV coordinates map the full generated image (0,0) to (1,1)
+              region.u = 0;
+              region.v = 0;
+              region.u2 = 1;
+              region.v2 = 1;
+              
+              console.log(`🔍 DYNAMIC ATTACHMENT: TextureRegion setup:`, {
+                textureSize: `${img.width}x${img.height}`,
+                regionSize: `${region.width}x${region.height}`,
+                uvCoords: `(${region.u},${region.v}) to (${region.u2},${region.v2})`
+              });
+              
+              // Create attachment
+              const attachmentName = `generated_${slotName}_${Date.now()}`;
+              const attachment = new RegionAttachment(attachmentName, attachmentName);
+              attachment.region = region;
+              
+              // Set dimensions and positioning
+              attachment.width = baseWidth;
+              attachment.height = baseHeight;
+              attachment.x = offsetX;
+              attachment.y = offsetY;
+              attachment.scaleX = scaleX;
+              attachment.scaleY = scaleY;
+              attachment.rotation = rotation;
+              
+              console.log(`🔍 DYNAMIC ATTACHMENT: Set attachment properties:`, {
+                width: attachment.width,
+                height: attachment.height,
+                x: attachment.x,
+                y: attachment.y,
+                scaleX: attachment.scaleX,
+                scaleY: attachment.scaleY,
+                rotation: attachment.rotation
+              });
+              
+              attachment.updateRegion();
+              
+              // Add to current skin
+              const skin = skeleton.skin;
+              if (!skin) {
+                console.error(`❌ DYNAMIC ATTACHMENT: No skin available on skeleton`);
+                return;
+              }
+              
+              console.log(`🔍 DYNAMIC ATTACHMENT: Adding to skin "${skin.name}" at slot index ${slot.data.index}`);
+              skin.setAttachment(slot.data.index, attachmentName, attachment);
+              console.log(`✅ DYNAMIC ATTACHMENT: Added attachment "${attachmentName}" to skin`);
+              
+              // Verify the attachment was added
+              const retrievedAttachment = skin.getAttachment(slot.data.index, attachmentName);
+              if (!retrievedAttachment) {
+                console.error(`❌ DYNAMIC ATTACHMENT: Failed to retrieve attachment "${attachmentName}" from skin`);
+                return;
+              }
+              console.log(`✅ DYNAMIC ATTACHMENT: Verified attachment exists in skin`);
+              
+              // Apply the attachment to the slot
+              try {
+                skeleton.setAttachment(slotName, attachmentName);
+                console.log(`✅ DYNAMIC ATTACHMENT: Applied attachment "${attachmentName}" to slot "${slotName}"`);
+              } catch (setError) {
+                console.error(`❌ DYNAMIC ATTACHMENT: Failed to set attachment on skeleton:`, setError);
+                
+                // Alternative approach: set attachment directly on slot
+                console.log(`🔄 DYNAMIC ATTACHMENT: Trying direct slot assignment...`);
+                slot.attachment = attachment;
+                console.log(`✅ DYNAMIC ATTACHMENT: Applied attachment directly to slot "${slotName}"`);
+              }
+              
+            } catch (error) {
+              console.error(`❌ DYNAMIC ATTACHMENT: Failed to create attachment:`, error);
+              throw error;
+            }
+          };
+          
           // Notify parent component
           onSkeletonLoaded?.(skeleton, animationState);
+          onDynamicAttachmentCreator?.(createDynamicAttachment);
 
           setLoading(false);
 
