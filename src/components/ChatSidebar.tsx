@@ -35,16 +35,29 @@ interface AnimationData {
   description: string;
 }
 
+interface ReferenceImage {
+  id: string;
+  url: string;
+  file: File;
+}
+
 interface ChatSidebarProps {
   onAppearanceChange?: (changes: AppearanceChange) => void;
   onAnimationCreate?: (animation: AnimationData) => void;
+  referenceImages?: ReferenceImage[];
 }
 
-export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: ChatSidebarProps) {
+export default function ChatSidebar({ onAppearanceChange, onAnimationCreate, referenceImages = [] }: ChatSidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   
   const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
     api: '/api/spine-assistant',
+    body: {
+      referenceImages: referenceImages.map(img => ({
+        id: img.id,
+        dataUrl: img.url
+      }))
+    },
     onToolCall: ({ toolCall }) => {
       console.log('Tool called:', toolCall);
       // The tool results will be in the message stream
@@ -59,10 +72,20 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
         if (invocation.state === 'result') {
           switch (invocation.toolName) {
             case 'changeAppearance':
-              onAppearanceChange?.(invocation.result);
+              // Only apply if not waiting for asset generation
+              if (!invocation.result.needsGeneration) {
+                onAppearanceChange?.(invocation.result);
+              }
               break;
             case 'createAnimation':
               onAnimationCreate?.(invocation.result);
+              break;
+            case 'generateAsset':
+              // Handle generated asset
+              if (invocation.result.success) {
+                console.log('Asset generated:', invocation.result);
+                // In a real implementation, you would download and process the generated image
+              }
               break;
           }
         }

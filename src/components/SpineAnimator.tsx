@@ -47,7 +47,17 @@ interface AnimationData {
   description: string;
 }
 
-export default function SpineAnimator() {
+interface ReferenceImage {
+  id: string;
+  url: string;
+  file: File;
+}
+
+interface SpineAnimatorProps {
+  referenceImages?: ReferenceImage[];
+}
+
+export default function SpineAnimator({ referenceImages = [] }: SpineAnimatorProps) {
   const skeletonRef = useRef<Skeleton | null>(null);
   const animationStateRef = useRef<AnimationState | null>(null);
   const [animationsUpdated, setAnimationsUpdated] = useState(0);
@@ -84,6 +94,8 @@ export default function SpineAnimator() {
           }
         } catch (e) {
           console.error('Failed to set attachment:', e);
+          // Notify user that the attachment doesn't exist
+          alert(`Attachment "${change.value}" not found for slot "${change.target}". Please ensure the asset exists or let the AI generate it first.`);
         }
         break;
 
@@ -239,6 +251,7 @@ export default function SpineAnimator() {
       <ChatSidebar 
         onAppearanceChange={handleAppearanceChange}
         onAnimationCreate={handleAnimationCreate}
+        referenceImages={referenceImages}
       />
     </div>
   );
