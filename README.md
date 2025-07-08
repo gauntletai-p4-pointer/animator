@@ -37,7 +37,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Spine2D
 
-Current version expects Spineboy example from [here](https://en.esotericsoftware.com/spine-examples) to be in `assets/spineboy`
+Current version expects Spineboy example from [here](https://en.esotericsoftware.com/spine-examples) to be in `assets/spineboy` (now inlcuded)
 
 Additionally, I found it handy to have the [Spine api reference](https://esotericsoftware.com/spine-api-reference) saved at `references/spine-api`
 
