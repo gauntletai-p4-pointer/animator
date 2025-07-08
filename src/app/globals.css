@@ -1,21 +1,72 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* Configure dark mode for Tailwind v4 */
+@variant dark (&:where(.dark, .dark *));
+@variant light (&:where(.light, .light *));
 
-@theme inline {
+@theme {
+  /* Light theme colors */
+  --color-background-light: #ffffff;
+  --color-foreground-light: #171717;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-blue-50: #eff6ff;
+  --color-blue-700: #1d4ed8;
+  --color-blue-100: #dbeafe;
+  
+  /* Dark theme colors */
+  --color-background-dark: #111827;  /* gray-900 */
+  --color-foreground-dark: #f3f4f6;  /* gray-100 */
+  --color-gray-800: #1f2937;
+  --color-gray-700: #374151;
+  --color-blue-900: #1e3a8a;
+  --color-blue-300: #93c5fd;
+  --color-blue-800: #1e40af;
+  
+  /* Define color utilities that respond to theme */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: var(--color-background-light);
+  --foreground: var(--color-foreground-light);
+  --button-bg: var(--color-blue-50);
+  --button-text: var(--color-blue-700);
+  --button-hover: var(--color-blue-100);
+  --select-bg: #ffffff;
+  --select-border: #d1d5db;
+}
+
+html.light {
+  --background: var(--color-background-light);
+  --foreground: var(--color-foreground-light);
+  --button-bg: var(--color-blue-50);
+  --button-text: var(--color-blue-700);
+  --button-hover: var(--color-blue-100);
+  --select-bg: #ffffff;
+  --select-border: #d1d5db;
+}
+
+html.dark {
+  --background: var(--color-background-dark);
+  --foreground: var(--color-foreground-dark);
+  --button-bg: var(--color-blue-900);
+  --button-text: var(--color-blue-300);
+  --button-hover: var(--color-blue-800);
+  --select-bg: var(--color-gray-800);
+  --select-border: var(--color-gray-700);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  html:not(.light):not(.dark) {
+    --background: var(--color-background-dark);
+    --foreground: var(--color-foreground-dark);
+    --button-bg: var(--color-blue-900);
+    --button-text: var(--color-blue-300);
+    --button-hover: var(--color-blue-800);
+    --select-bg: var(--color-gray-800);
+    --select-border: var(--color-gray-700);
   }
 }
 
@@ -23,4 +74,30 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* File input button styles */
+input[type="file"]::file-selector-button {
+  background-color: var(--button-bg);
+  color: var(--button-text);
+}
+
+input[type="file"]::file-selector-button:hover {
+  background-color: var(--button-hover);
+}
+
+/* Ensure Tailwind dark utilities work */
+@media (prefers-color-scheme: dark) {
+  html:not(.light) {
+    color-scheme: dark;
+  }
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.light {
+  color-scheme: light;
 }
