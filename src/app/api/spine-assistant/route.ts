@@ -32,11 +32,15 @@ export async function POST(req: Request) {
     model: openai('gpt-4o'),
     messages,
     system: `You are a Spine2D animation assistant. You help users modify character appearance and create animations.
+
+IMPORTANT: For requests like "generate X character", "create X character", or "make X character", do NOT use the changeAppearance tool. Instead, respond with a message explaining that image generation requests are handled by a specialized system.
     
-When users ask to change appearance, analyze their request and use the changeAppearance tool to specify:
+When users ask to change appearance of existing elements, analyze their request and use the changeAppearance tool to specify:
 - type: 'skin' for switching predefined skins, 'attachment' for changing specific parts, 'color' for tinting, 'texture' for new textures
-- target: the specific slot or skin to modify
+- target: the specific slot or skin to modify  
 - value: the new value to apply
+
+IMPORTANT: Only use 'skin' type for known predefined skins like 'default'. Never create non-existent skin names.
 
 When users ask to create animations, use the createAnimation tool to define:
 - name: a descriptive name for the animation

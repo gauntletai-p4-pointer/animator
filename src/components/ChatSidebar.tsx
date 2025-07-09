@@ -144,6 +144,8 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
   const [currentReferenceImages, setCurrentReferenceImages] = useState<ReferenceImage[]>([]);
   const [currentTargetSlot, setCurrentTargetSlot] = useState<string>('');
   
+  const [useOriginalSystem, setUseOriginalSystem] = useState(false);
+  
   const { messages, input, handleInputChange, handleSubmit, isLoading, setMessages, append } = useChat({
     api: '/api/spine-assistant',
     onToolCall: ({ toolCall }) => {
@@ -214,10 +216,11 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
     console.log('🎯 ChatSidebar: Processing user prompt:', userPrompt);
     
     // Add user message to chat immediately
-    await append({
+    setMessages(prevMessages => [...prevMessages, {
+      id: Date.now().toString(),
       role: 'user',
       content: userPrompt,
-    });
+    }]);
 
     setIsRoutingRequest(true);
 
@@ -255,19 +258,21 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
             referenceDescription += `• **User Aesthetic References:** ${userImages.map(img => img.name).join(', ')} (for art style)\n`;
           }
         
-                            await append({
+                            setMessages(prevMessages => [...prevMessages, {
+            id: Date.now().toString(),
             role: 'assistant',
             content: `🔍 **Reference Images Selected for Generation:**\n\n${referenceDescription}\n*The selected reference images are displayed below and will be sent to GPT-image-1 to provide context for generating your request.*`,
-          });
+          }]);
       } else {
         console.log('⚠️ ChatSidebar: No relevant reference images selected');
         console.log('📋 ChatSidebar: Total available reference images:', referenceImages.length);
         console.log('📋 ChatSidebar: Available reference names:', referenceImages.map(img => img.name));
         
-        await append({
+        setMessages(prevMessages => [...prevMessages, {
+          id: Date.now().toString(),
           role: 'assistant',
           content: `⚠️ **No Reference Images Found**\n\nNo relevant reference images were found for your request. This may affect the quality of the generated image.\n\n*Available images: ${referenceImages.length}*`,
-        });
+        }]);
       }
       
       // Call the LLM router first
@@ -288,19 +293,30 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
 
       const routerData = await routerResponse.json();
       console.log('📊 ChatSidebar: Router response:', routerData);
+      console.log('🔍 DEBUG: Router response structure:', {
+        hasResult: !!routerData.result,
+        hasExtractedParams: !!routerData.result?.extractedParams,
+        category: routerData.categorization?.category,
+        success: routerData.result?.success
+      });
 
       // Handle the response based on the routing result
       if (routerData.result.useOriginalSystem) {
         console.log('🔄 ChatSidebar: Using original system for this request');
         
         // Add router response to chat for original system requests
-        await append({
+        setMessages(prevMessages => [...prevMessages, {
+          id: Date.now().toString(),
           role: 'assistant',
           content: `🔍 Request categorized as: **${routerData.categorization.category}**\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
-        });
+        }]);
         
-        // Let the original system handle it - the form submission will proceed normally
-        // after this function completes
+        // Set flag to use original system
+        setUseOriginalSystem(true);
+        
+        // Let the original system handle it - call handleSubmit directly
+        handleSubmit(e);
+        return;
       } else {
         console.log('✅ ChatSidebar: Request handled by new router system');
         
@@ -310,12 +326,109 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
           console.log('🔍 ChatSidebar: Checking image generation result...');
           console.log('   ✅ Success:', routerData.result.success);
           console.log('   🖼️ Has generatedImageUrl:', !!routerData.result.extractedParams?.generatedImageUrl);
+          console.log('   🏰 Is full character generation:', !!routerData.result.extractedParams?.isFullCharacterGeneration);
           console.log('   📋 ExtractedParams keys:', Object.keys(routerData.result.extractedParams || {}));
+          console.log('   🔍 DEBUG: isFullCharacterGeneration value:', routerData.result.extractedParams?.isFullCharacterGeneration);
+          console.log('   🔍 DEBUG: individualPromptMessages:', routerData.result.extractedParams?.individualPromptMessages);
+          console.log('   🔍 DEBUG: allGeneratedImages:', routerData.result.extractedParams?.allGeneratedImages);
           if (routerData.result.extractedParams?.generatedImageUrl) {
             console.log('   🔗 Image URL:', routerData.result.extractedParams.generatedImageUrl);
           }
           
-          if (routerData.result.success && routerData.result.extractedParams?.generatedImageUrl) {
+          // Handle full character generation differently
+          if (routerData.result.extractedParams?.isFullCharacterGeneration) {
+            console.log('🏰 ChatSidebar: Processing full character generation result');
+            
+            // First, display the main message
+            setMessages(prevMessages => [...prevMessages, {
+              id: Date.now().toString(),
+              role: 'assistant',
+              content: routerData.result.message,
+            }]);
+            
+            // Then display individual prompts if they exist
+            if (routerData.result.extractedParams.individualPromptMessages) {
+              console.log('📝 ChatSidebar: Displaying individual prompts');
+              
+              const promptMessages = routerData.result.extractedParams.individualPromptMessages.map((promptMsg: any) => ({
+                id: `${Date.now()}-prompt-${promptMsg.index}`,
+                role: 'assistant' as const,
+                content: `💡 **Generated Prompt ${promptMsg.index}:** ${promptMsg.displayName}\n\n"${promptMsg.prompt}"`,
+              }));
+              
+              setMessages(prevMessages => [...prevMessages, ...promptMessages]);
+            }
+            
+            // Process all generated images
+            if (routerData.result.extractedParams.allGeneratedImages && routerData.result.extractedParams.allGeneratedImages.length > 0) {
+              console.log('🎨 ChatSidebar: Processing multiple generated images:', routerData.result.extractedParams.allGeneratedImages.length);
+              
+              const imageMessages: Array<{id: string, role: 'assistant', content: string}> = [];
+              const newGeneratedImages: GeneratedImage[] = [];
+              
+              for (const genImage of routerData.result.extractedParams.allGeneratedImages) {
+                console.log(`   🖼️ Processing image for ${genImage.bodyPart}: ${genImage.displayName}`);
+                
+                try {
+                  // Process each image to remove background
+                  const transparentImageUrl = await makeTransparent(genImage.generatedImageUrl, {
+                    tolerance: 35,
+                    edgeDetection: true
+                  });
+                  
+                  // Update the image URL
+                  genImage.generatedImageUrl = transparentImageUrl;
+                  
+                  // Apply to character
+                  if (onAppearanceChange) {
+                    const appearanceChange: AppearanceChange = {
+                      type: 'texture',
+                      target: genImage.bodyPart,
+                      value: transparentImageUrl,
+                      description: `Applied generated ${genImage.itemType} to ${genImage.bodyPart}`,
+                    };
+                    onAppearanceChange(appearanceChange);
+                  }
+                  
+                  // Prepare message for batch adding
+                  imageMessages.push({
+                    id: `${Date.now()}-image-${genImage.bodyPart}`,
+                    role: 'assistant' as const,
+                    content: `✅ **${genImage.displayName} Generated & Applied!**\n\n**Prompt:** ${genImage.prompt}\n\n**Applied to:** ${genImage.bodyPart}\n\n![Generated Image](${transparentImageUrl})`,
+                  });
+                  
+                  // Prepare generated image for batch adding
+                  const newImage: GeneratedImage = {
+                    id: `${Date.now()}-${genImage.bodyPart}`,
+                    imageUrl: transparentImageUrl,
+                    description: genImage.itemType || 'Generated item',
+                    revisedPrompt: genImage.revisedPrompt,
+                    rewrittenPrompt: genImage.rewrittenPrompt,
+                    itemType: genImage.itemType,
+                    color: 'generated',
+                    timestamp: new Date().toISOString(),
+                    hasTransparency: true,
+                  };
+                  
+                  newGeneratedImages.push(newImage);
+                  
+                } catch (error) {
+                  console.error(`❌ ChatSidebar: Error processing image for ${genImage.bodyPart}:`, error);
+                }
+              }
+              
+              // Add all image messages at once
+              if (imageMessages.length > 0) {
+                setMessages(prevMessages => [...prevMessages, ...imageMessages]);
+              }
+              
+              // Add all generated images at once
+              if (newGeneratedImages.length > 0) {
+                setGeneratedImages(prev => [...prev, ...newGeneratedImages]);
+              }
+            }
+            
+          } else if (routerData.result.success && routerData.result.extractedParams?.generatedImageUrl) {
             console.log('🖼️ ChatSidebar: Adding generated image to chat and display');
             
             // Extract body parts for character attachment
@@ -388,10 +501,11 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
               promptDisplay = `\n\n**Complete Prompt Sent to GPT-image-1:**\n\`\`\`\n${finalPrompt}\n\`\`\``;
             }
             
-            await append({
+            setMessages(prevMessages => [...prevMessages, {
+              id: `${Date.now()}-single-image`,
               role: 'assistant',
               content: `🎨 **Image Generated & Applied Successfully!**\n\n**Original Request:** ${userPrompt}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams.rewrittenPrompt}\n\n**Generated:** ${routerData.result.extractedParams.itemType} (${routerData.result.extractedParams.color})\n\n**Applied to:** ${bodyParts.join(', ')}${referenceInfo}${promptDisplay}\n\n![Generated Image](${routerData.result.extractedParams.generatedImageUrl})`,
-            });
+            }]);
             
             const newImage: GeneratedImage = {
               id: Date.now().toString(),
@@ -412,34 +526,41 @@ export default function ChatSidebar({ onAppearanceChange, onAnimationCreate }: C
             console.log('❌ ChatSidebar: Image generation failed');
             
             // Add failed image generation response to chat
-            await append({
+            setMessages(prevMessages => [...prevMessages, {
+              id: `${Date.now()}-failed-image`,
               role: 'assistant',
               content: `❌ **Image Generation Failed**\n\n**Original Request:** ${userPrompt}\n\n**Error:** ${routerData.result.error}\n\n**Rewritten Prompt:** ${routerData.result.extractedParams?.rewrittenPrompt || 'N/A'}\n\nPlease try again with a different request.`,
-            });
+            }]);
           }
           
         } else {
           // For other categories (animations, export, etc.)
-          await append({
+          setMessages(prevMessages => [...prevMessages, {
+            id: `${Date.now()}-other-category`,
             role: 'assistant',
             content: `🔍 **Request Processed:** ${routerData.categorization.category}\n\n${routerData.result.message}\n\n*Confidence: ${Math.round(routerData.categorization.confidence * 100)}%*\n\n*Reasoning: ${routerData.categorization.reasoning}*`,
-          });
+          }]);
         }
         
-        // The new system has already handled the request
+        // The new system has already handled the request - don't call original system
+        return;
       }
 
     } catch (error) {
       console.error('❌ ChatSidebar: Error with LLM router:', error);
       
       // Add error message to chat
-      await append({
+      setMessages(prevMessages => [...prevMessages, {
+        id: `${Date.now()}-error`,
         role: 'assistant',
         content: '❌ Error processing request with LLM router. Falling back to original system...',
-      });
+      }]);
       
       // Fall back to original system
       console.log('🔄 ChatSidebar: Falling back to original system due to error');
+      setUseOriginalSystem(true);
+      handleSubmit(e);
+      return;
     } finally {
       setIsRoutingRequest(false);
     }
